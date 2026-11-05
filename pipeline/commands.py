@@ -11,14 +11,31 @@ def run(args: argparse.Namespace) -> int:
     if cmd == "fetch":
         from pipeline.firms import fetch_area
 
-        # Placeholder com bbox do Ceará e janela máxima — para o backfill eficiente
-        # usar o Archive Download (fase de backfill), não a Area API.
-        csv = fetch_area("MODIS_SP", (-39.3, -7.9, -37.2, -2.8), day_range=1)
+        # Bbox padrão: Ceará. Sem --date = últimos --days dias (NRT).
+        csv = fetch_area(
+            args.source,
+            (-39.3, -7.9, -37.2, -2.8),
+            day_range=args.days,
+            date=args.date,
+        )
+        # fetch_area grava em data/raw com nome <source>_<hash>.csv (cache).
+        from pathlib import Path
+
+        from pipeline.firms import _cache_path  # noqa: PLC0415 — cache determinístico
+
+        path = _cache_path(args.source, (-39.3, -7.9, -37.2, -2.8), args.days, args.date)
         if csv.strip():
-            print("CSV recebido (para ingestão use: ingest)")
-            print(json.dumps({"preview_chars": len(csv)}))
+            n_rows = max(0, len(csv.strip().splitlines()) - 1)
+            print(
+                json.dumps(
+                    {"source": args.source, "file": str(path), "rows": n_rows,
+                     "next_step": f"python -m pipeline ingest {path} --source {args.source}"},
+                    indent=2,
+                )
+            )
         else:
-            print("Sem detecções na janela/resolução consultada (resposta vazia da FIRMS).")
+            print(json.dumps({"source": args.source, "file": str(path), "rows": 0,
+                              "note": "sem detecções na janela (resposta vazia da FIRMS)"}))
         return 0
 
     if cmd == "ingest":
@@ -80,10 +97,10 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if cmd == "status":
-        from pipeline.firms import map_key_status
+        from pipeline.firms import data_availability
 
         try:
-            print(map_key_status())
+            print(data_availability(args.sensor))
         except RuntimeError as exc:
             print(f"AVISO: {exc}")
             return 2

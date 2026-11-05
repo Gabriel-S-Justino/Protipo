@@ -40,6 +40,7 @@ SOURCES: dict[str, dict[str, str]] = {
     "VIIRS_SNPP_NRT": {"sensor": "VIIRS", "instrument": "VIIRS"},
     "VIIRS_NOAA20_SP": {"sensor": "VIIRS", "instrument": "VIIRS"},
     "VIIRS_NOAA20_NRT": {"sensor": "VIIRS", "instrument": "VIIRS"},
+    "VIIRS_NOAA21_SP": {"sensor": "VIIRS", "instrument": "VIIRS"},
     "VIIRS_NOAA21_NRT": {"sensor": "VIIRS", "instrument": "VIIRS"},
 }
 
@@ -48,6 +49,7 @@ SAT_BY_SOURCE = {
     "VIIRS_SNPP_NRT": "Suomi-NPP",
     "VIIRS_NOAA20_SP": "NOAA-20",
     "VIIRS_NOAA20_NRT": "NOAA-20",
+    "VIIRS_NOAA21_SP": "NOAA-21",
     "VIIRS_NOAA21_NRT": "NOAA-21",
 }
 

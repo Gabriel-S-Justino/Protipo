@@ -19,7 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=PIPELINE_VERSION)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("fetch", help="Baixa CSVs da FIRMS (requere MAP_KEY)")
+    p_fetch = sub.add_parser("fetch", help="Baixa CSV da FIRMS para o Ceará (requere MAP_KEY)")
+    p_fetch.add_argument("--source", required=True, help="ex.: MODIS_NRT, VIIRS_NOAA21_NRT")
+    p_fetch.add_argument("--days", type=int, default=1, help="Janela 1..5 (limite real da Area API)")
+    p_fetch.add_argument("--date", help="Data inicial AAAA-MM-DD (opcional; sem ela = recentes)")
+
     sub.add_parser("backfill", help="Backfill histórico paginado por janelas")
 
     p_ingest = sub.add_parser("ingest", help="Ingestão idempotente de arquivo local")

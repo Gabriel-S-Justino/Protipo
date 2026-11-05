@@ -6,10 +6,38 @@
 |------|----------------------|
 | Area API (base URL + template) | `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{SOURCE}/{west,south,east,north}/{DAY_RANGE}/{DATE}` |
 | Chamada sem chave | HTTP 400, corpo `Invalid MAP_KEY.` — formatos reais do próprio recurso |
-| Origem do MAP_KEY | `https://firms.modaps.eosdis.nasa.gov/api/map_key/` (conta Earthdata) |
-| max DAY_RANGE por chamada | **a confirmar com chave real** (suposta 10; implementado em `pipeline/firms.py#MAX_DAY_RANGE` com `min(day_range, MAX_DAY_RANGE)`) |
-| data availability endpoint | `/api/data_availability/csv/{MAP_KEY}/{SENSOR}` — validar com chave |
+| Origem do MAP_KEY | `https://firms.modaps.eosdis.nasa.gov/api/map_key/` (conta Earthdata; limite: 5000 transações / 10 min) |
+| max DAY_RANGE por chamada | **5 dias — validado com chave real** (`HTTP 400 "Invalid day range. Expects [1..5]"`); `MAX_DAY_RANGE=5` em `pipeline/firms.py` |
+| `map_key_status` | **NÃO existe como API pública** → HTTP 400 `Invalid API call.` (o "Check status" é ação da página web); o status útil é via `data_availability` |
+| data availability endpoint (`/api/data_availability/csv/{MAP_KEY}/{SOURCE}`) | ✔ HTTP 200, CSV `data_id,min_date,max_date` — ver tabela abaixo |
 | Archive Download | usar para backfill histórico em massa (por país/região/ano) — validar URLs reais no momento do backfill |
+
+Cobertura real obtida em 2026-11-05 (data_availability):
+
+| SOURCE | min_date | max_date |
+|--------|----------|----------|
+| MODIS_SP | 2000-11-01 | **2026-08-31** |
+| VIIRS_SNPP_SP | 2012-01-20 | 2026-07-31 |
+| VIIRS_NOAA20_SP | 2018-04-01 | 2026-07-31 |
+| VIIRS_NOAA20_NRT | 2026-08-01 | 2026-11-05 |
+| **VIIRS_NOAA21_SP** (EXISTS) | 2023-03-01 | 2026-07-31 |
+| VIIRS_NOAA21_NRT | 2024-01-17 | simultâneo (hoje) |
+
+⚠ Janela NRT é deslizante (~90 dias): SNPP NRT cobria 2026-08-01 → **2026-11-02** (encerrou
+exatamente em 2/11/2026 como previsto); histórico completo via SP + Archive Download.
+Fonte `VIIRS_NOAA21_SP` já adicionada nesses adaptadores (`pipeline/normalization.py`).
+
+Comportamento real confirmado da Area API (com chave):
+
+- Com `{DATE}`: consulta os `DAY_RANGE` dias ANTERIORES à data (✔ testado 2024-09-15, MODIS_SP).
+- Sem `{DATE}`: últimos dias até hoje (✔ testado NRT).
+- Resposta vazia/só-header = nenhuma detecção (não é erro) ✔.
+- CSV VIIRS NRT real (NOAA-21 5 dias no Ceará): `...satellite,instrument,confidence,version,bright_ti5,frp,daynight`
+  → confiança l/n/h ✔, frp ✔; normalizado **389/389**, 0 rejeitos.
+- CSV MODIS SP real: coluna extra `type` + frp; `satellite` já vem como "Terra"/"Aqua" ✔;
+  normalizado **114/114**, 0 rejeitos.
+- Arquivos no cache: `data/raw/VIIRS_NOAA21_NRT_*.csv`, `data/raw/MODIS_NRT_*.csv` — prontos
+  para `python -m pipeline ingest <arquivo> --source <SOURCE>` quando o banco estiver disponível.
 
 ## Fontes (SOURCE) mapeadas em `pipeline/normalization.py`
 
