@@ -1,0 +1,12 @@
+# Dependências da API — enxutas sem Docker (espelhar em api/requirements.txt).
+# Migrations usam alembic fora das funções serverless (local/CI).
+fastapi==0.162.0
+pydantic==2.14.3
+pydantic-settings==2.16.2
+sqlalchemy==2.1.8
+psycopg[binary]==3.3.8
+alembic==1.20.1
+
+# Desenvolvimento/testes
+httpx2==2.16.0
+pytest==9.2.0

@@ -1,0 +1,16 @@
+# Dependências do pipeline científico (FORA da Vercel; nunca na function da API).
+# Versões fixadas com wheels para Python 3.14 (ambiente de desenvolvimento atual).
+pandas==3.1.1
+numpy==2.5.4
+geopandas==1.2.0
+shapely==2.2.0
+pyproj==3.8.0
+scipy==1.18.1
+statsmodels==0.15.0
+scikit-learn==1.9.1
+
+sqlalchemy==2.1.8
+psycopg[binary]==3.3.8
+alembic==1.20.1
+requests==2.34.2
+pytest==9.0.2

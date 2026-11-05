@@ -1,0 +1,16 @@
+# Nada do pipeline científico, dados, docs ou CI vai para a Vercel.
+pipeline/
+data/
+docs/
+scripts/
+.github/
+backend/tests/
+backend/.pytest_cache/
+database/
+backend/migrations/
+*.md
+!README.md
+frontend/node_modules/
+.venv/
+__pycache__/
+*.py[cod]

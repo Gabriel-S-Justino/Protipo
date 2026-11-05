@@ -1,0 +1,15 @@
+{
+  "name": "fire-intelligence-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Série histórica unificada MODIS→VIIRS e calendário probabilístico de focos de calor (sem Docker, Vercel-first).",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "preview": "npm run preview --prefix frontend",
+    "api:dev": "uvicorn backend.app.main:app --reload --port 8000",
+    "pipeline:demo": "python -m pipeline seed-demo --rows 5000",
+    "setup:python": "python scripts/setup_python.py"
+  },
+  "license": "MIT"
+}
