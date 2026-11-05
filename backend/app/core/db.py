@@ -21,13 +21,14 @@ def get_engine() -> Engine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        if not settings.database_url:
+        url = settings.api_database_url
+        if not url:
             raise RuntimeError(
-                "DATABASE_URL não configurada: defina a variável no ambiente "
-                "(ver .env.example e docs/SETUP.md)."
+                "Banco não configurado: defina DATABASE_URL (manual) ou crie o banco pela "
+                "integração da Vercel (Database Marketplace) — ver docs/SETUP.md."
             )
         _engine = create_engine(
-            settings.database_url,
+            url,
             poolclass=__import__("sqlalchemy").pool.NullPool,
             connect_args={"options": f"-c statement_timeout={settings.query_timeout_ms}"},
         )

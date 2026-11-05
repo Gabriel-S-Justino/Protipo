@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.app.api import dashboard, detections, health, series
+from backend.app.api import admin, dashboard, detections, health, series
 from backend.app.core.config import get_settings
 
 settings = get_settings()
@@ -29,12 +29,13 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# CORS restrito: em produção, CORS_ORIGINS deve apontar o domínio do SPA ("*" proibido).
+# CORS: GET para o SPA; POST só é necessário para /api/admin (uso via Swagger/curl,
+# mesma origem — CORS não se aplica à mesma origem).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -42,6 +43,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(detections.router, prefix="/api")
 app.include_router(series.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

@@ -8,6 +8,8 @@
     "build": "npm run build --prefix frontend",
     "preview": "npm run preview --prefix frontend",
     "api:dev": "uvicorn backend.app.main:app --reload --port 8000",
+    "db:migrate": "alembic -c backend/alembic.ini upgrade head",
+    "db:status": "alembic -c backend/alembic.ini current",
     "pipeline:demo": "python -m pipeline seed-demo --rows 5000",
     "setup:python": "python scripts/setup_python.py"
   },

@@ -7,10 +7,11 @@ scripts/
 backend/tests/
 backend/.pytest_cache/
 database/
-backend/migrations/
+backend/migrations/versions/__pycache__/
 *.md
 !README.md
 frontend/node_modules/
 .venv/
 __pycache__/
 *.py[cod]
+.env

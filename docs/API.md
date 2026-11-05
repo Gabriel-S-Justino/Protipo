@@ -20,7 +20,8 @@ Todas as respostas com erros padronizados `{"error": ..., "detail": ...}`, limit
 | `/api/analytics/anomalies`  | fase 5              | ler `anomaly_results` |
 | `/api/harmonization/*`      | fase 4              | modelos/relatório de calibração |
 | `/api/ingestion/batches`    | fase 3              | relatórios de ingestão |
-| `/api/admin/*` (POST)       | fase 7              | protegido por ADMIN_TOKEN; OFF por padrão |
+| `/api/admin/migrate` (POST) | fase: implementado no fluxo de deploy | aplica migrations Alembic (X-Admin-Token; ADMIN_ENABLED=true) |
+| `/api/admin/*` demais       | fase 7              | protegido por ADMIN_TOKEN; OFF por padrão |
 
 ## Segurança
 

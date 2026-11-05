@@ -1,4 +1,13 @@
-"""Configuração central da API via variáveis de ambiente (Pydantic Settings)."""
+"""Configuração central da API via variáveis de ambiente (Pydantic Settings).
+
+Suporta, SEM mudanças de código, tanto o setup manual (.env) quanto a integração
+Vercel × Neon (Database Marketplace), que injeta automaticamente:
+  - DATABASE_URL            (pooled; usada pela API)
+  - DATABASE_URL_UNPOOLED   (direta; usada por migrations/pipeline)
+  - legacy: POSTGRES_URL / POSTGRES_URL_NON_POOLING (integrações antigas)
+"""
+
+import os
 
 from functools import lru_cache
 
@@ -11,12 +20,11 @@ class Settings(BaseSettings):
     app_env: str = "development"  # development | preview | production
     app_name: str = "Fire Intelligence Platform"
 
-    # Conexão POOLED (Neon/Supabase pooler) — usada pelas functions.
+    # Manual (.env). Na integração Vercel×Neon, DATABASE_URL já é injetada automaticamente.
     database_url: str | None = None
-    # Conexão DIRETA — usada por migrations/pipeline (nunca pela API em requisição).
     database_url_direct: str | None = None
 
-    # Habilita POST /api/admin/* (recomendado apenas em development).
+    # Habilita POST /api/admin/* (migrations etc.). OFF por padrão (segurança).
     admin_enabled: bool = False
     admin_token: str | None = None
     cron_secret: str | None = None
@@ -32,6 +40,20 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def api_database_url(self) -> str | None:
+        """URL pooled para requisições da API (precedência: manual → integração)."""
+        return self.database_url or os.getenv("POSTGRES_URL")
+
+    @property
+    def direct_database_url(self) -> str | None:
+        """URL DIRETA para migrations/pipeline (nunca a pooled, p/ evitar erros de schema)."""
+        return (
+            self.database_url_direct
+            or os.getenv("DATABASE_URL_UNPOOLED")  # integração Vercel×Neon
+            or os.getenv("POSTGRES_URL_NON_POOLING")  # integração legada
+        )
 
 
 @lru_cache

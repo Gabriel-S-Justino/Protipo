@@ -1,5 +1,5 @@
 """API package: routers."""
 
-from backend.app.api import dashboard, detections, health, series
+from backend.app.api import admin, dashboard, detections, health, series
 
-__all__ = ["dashboard", "detections", "health", "series"]
+__all__ = ["admin", "dashboard", "detections", "health", "series"]

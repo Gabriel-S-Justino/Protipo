@@ -36,6 +36,18 @@ docs/                documentação (PT-BR)
 scripts/             utilitários multiplataforma
 ```
 
+Referência rápida de operação (para o passo a passo completo, ver `docs/VERCEL.md`).
+
+## Deploy “está pronto”: fluxo sem mudanças de código
+
+1. `git push` → Vercel importa o repo e faz o deploy (frontend ✔ + API ✔ `/api/health`).
+2. Painel Vercel → **Storage → Create Database → Neon** → conecta ao projeto →
+   a integração injeta `DATABASE_URL`/`DATABASE_URL_UNPOOLED` automaticamente (o código já lê).
+3. Definir `ADMIN_ENABLED=true` e `ADMIN_TOKEN` (env Production) → redeploy →
+   `curl -X POST .../api/admin/migrate -H "X-Admin-Token: ..."` → PostGIS + 11 tabelas criadas.
+4. (Opcional) `npm run db:migrate` local faz o mesmo, com URLs no `.env`.
+5. Pipeline (`python -m pipeline`) para DEMO/ingestão real.
+
 ## Início rápido
 
 Veja `docs/SETUP.md` para detalhes (Windows/macOS/Linux).

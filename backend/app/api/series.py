@@ -17,10 +17,10 @@ def unified_series(
 ) -> dict:
     """Série unificada: cada ponto marca MODIS harmonizado x VIIRS direto + intervalo."""
     settings = get_settings()
-    if not settings.database_url:
+    if not settings.api_database_url:
         raise HTTPException(
             status_code=503,
-            detail="Banco não configurado (DATABASE_URL ausente); ver docs/SETUP.md.",
+            detail="Banco não conectado: crie o banco pela integração da Vercel ou defina DATABASE_URL. Ver docs/SETUP.md.",
         )
     limit = min(limit, settings.max_limit)
     sql = """
@@ -60,8 +60,8 @@ def unified_series(
 def seasonality(region_id: int | None = Query(None)) -> dict:
     """Sazonalidade média por semana do ano (climatologia interna p/ comparação)."""
     settings = get_settings()
-    if not settings.database_url:
-        raise HTTPException(status_code=503, detail="Banco não configurado; ver docs/SETUP.md.")
+    if not settings.api_database_url:
+        raise HTTPException(status_code=503, detail="Banco não conectado; ver docs/SETUP.md.")
     sql = """
         SELECT EXTRACT(WEEK FROM period_start)::int AS week,
                AVG(value_viirs)::float AS mean, STDDEV(value_viirs)::float AS sd

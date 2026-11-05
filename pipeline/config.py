@@ -37,8 +37,14 @@ _env = os.environ
 
 
 def get_settings() -> PipelineSettings:
+    """Ordem de precedência: manual (.env) → integração Vercel×Neon (diretas)."""
+    direct = (
+        _env.get("DATABASE_URL_DIRECT")
+        or _env.get("DATABASE_URL_UNPOOLED")       # integração Vercel×Neon
+        or _env.get("POSTGRES_URL_NON_POOLING")    # integração legada
+    )
     return PipelineSettings(
-        database_url_direct=_env.get("DATABASE_URL_DIRECT") or _env.get("DATABASE_URL"),
+        database_url_direct=direct,
         map_key=_env.get("MAP_KEY"),
         data_dir=_env.get("DATA_DIR", "data"),
     )

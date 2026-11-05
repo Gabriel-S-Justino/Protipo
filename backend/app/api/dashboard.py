@@ -16,12 +16,13 @@ router = APIRouter(tags=["dashboard"])
 
 def _require_db() -> None:
     settings = get_settings()
-    if not settings.database_url:
+    if not settings.api_database_url:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Banco não configurado (DATABASE_URL ausente). Configure o ambiente "
-                "conforme docs/SETUP.md. Sem dadosfake."
+                "Banco não conectado: crie o banco pela integração da Vercel (Database "
+                "Marketplace) ou defina DATABASE_URL no .env (ver docs/SETUP.md). "
+                "Nada de dados fictícios em produção."
             ),
         )
 

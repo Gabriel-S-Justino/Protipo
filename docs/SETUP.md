@@ -29,15 +29,26 @@ Copie `.env.example` para `.env`, edite:
   https://firms.modaps.eosdis.nasa.gov/api/map_key/ e preencha `MAP_KEY=`;
 - opcional: `VITE_*` públicas.
 
-## 4. Migrations (executar do local, nunca da function)
+## 4. Banco de dados — dois caminhos SEM editar código
 
-```bash
-cd backend
-alembic upgrade head           # usa DATABASE_URL_DIRECT (direta, NÃO pooled)
-alembic current                # confirma a revisão aplicada
-```
+**A) Integração Vercel × Neon (recomendado, zero código):** o projeto já resolve
+automaticamente `DATABASE_URL` / `DATABASE_URL_UNPOOLED` injetadas pela integração.
+Migrations podem rodar via API admin (`POST /api/admin/migrate` — ver docs/VERCEL.md §3).
 
-> O PostGIS já deve estar habilitado (`CREATE EXTENSION IF NOT EXISTS postgis;` está na migration 0001, mas o plano do Neon/Supabase pode exigir ativar no painel).
+**B) Manual:** copie do painel Neon as duas URLs para `.env`:
+- `DATABASE_URL=` (pooled; para a API) e `DATABASE_URL_DIRECT=` (direta; para migrations);
+- Migrations a partir do local (também equivalente):
+  ```bash
+  cd backend
+  alembic upgrade head           # usa DATABASE_URL_DIRECT (direta, NÃO pooled)
+  alembic current                # confirma a revisão aplicada
+  ```
+  (ou, da raiz: `npm run db:migrate` / `npm run db:status`)
+
+> O PostGIS precisa estar disponível no plano; a migration 0001 roda
+> `CREATE EXTENSION IF NOT EXISTS postgis;` (no Neon/Supabase é suportado; se o plano
+> reclamar, ative a extensão no painel do banco).
+
 
 ## 5. Rodar local
 

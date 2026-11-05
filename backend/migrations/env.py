@@ -1,5 +1,11 @@
-"""Ambiente Alembic — usa DATABASE_URL_DIRECT (conexão direta, NUNCA a pooled).
-Nunca rodar migrations automaticamente a cada cold start (local/CI apenas)."""
+"""Ambiente Alembic — usa a conexão DIRETA (database_url indireta reserva NUNCA a pooled).
+
+Aceita, em ordem:
+  1) DATABASE_URL_DIRECT   (manual/.env, pipeline, CI)
+  2) DATABASE_URL_UNPOOLED (integração Vercel × Neon)
+  3) POSTGRES_URL_NON_POOLING (integração legada)
+
+Nunca rodar migrations automaticamente a cada cold start (local/CI/admin apenas)."""
 
 import os
 
@@ -10,11 +16,16 @@ from backend.app.models import Base
 
 config = context.config
 
-# URL vinda do ambiente (12-factor)
-db_url = os.environ.get("DATABASE_URL_DIRECT") or os.environ.get("DATABASE_URL")
+db_url = (
+    os.environ.get("DATABASE_URL_DIRECT")
+    or os.environ.get("DATABASE_URL_UNPOOLED")
+    or os.environ.get("POSTGRES_URL_NON_POOLING")
+    or os.environ.get("DATABASE_URL")
+)
 if not db_url:
     raise RuntimeError(
-        "DATABASE_URL_DIRECT (ou DATABASE_URL) deve estar definida para rodar migrations."
+        "URL direta do banco ausente para migrations. Use DATABASE_URL_DIRECT (manual) "
+        "ou a var DATABASE_URL_UNPOOLED injetada pela integração Vercel×Neon."
     )
 config.set_main_option("sqlalchemy.url", db_url)
 
