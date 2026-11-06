@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.app.api import admin, dashboard, detections, health, series
+from backend.app.api import admin, analytics, dashboard, detections, health, regions, series, tiles
 from backend.app.core.config import get_settings
 
 settings = get_settings()
@@ -43,6 +43,9 @@ app.include_router(health.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(detections.router, prefix="/api")
 app.include_router(series.router, prefix="/api")
+app.include_router(regions.router, prefix="/api")
+app.include_router(analytics.router, prefix="/api")
+app.include_router(tiles.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
 

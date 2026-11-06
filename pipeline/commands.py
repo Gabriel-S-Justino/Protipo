@@ -69,19 +69,30 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if cmd == "backfill":
-        print(
-            "backfill: implementado na fase 3 (janelas paginadas/Area API + Archive Download "
-            "para o histórico em massa). Requer MAP_KEY.\n"
-            "Roteiro: docs/DATA_PIPELINE.md"
+        from pipeline.backfill import run_backfill
+
+        report = run_backfill(
+            source=args.source,
+            start=args.start,
+            end=args.end,
+            sleep_s=args.sleep,
+            limit=args.limit,
         )
-        return 2
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return 0 if report.get("status") == "ok" else 1
 
     if cmd in ("harmonize", "calendar", "anomalies"):
-        print(
-            f"{cmd}: fase de implementação planejada — ver docs/HARMONIZATION.md / "
-            "docs/CALENDAR_MODEL.md. Não há dados fakes."
-        )
-        return 2
+        from pipeline.analytics import anomalies, calendar, harmonize
+
+        region_id = getattr(args, "region", None) or 1
+        if cmd == "harmonize":
+            result = harmonize(region_id=region_id, start=args.start, end=args.end)
+        elif cmd == "calendar":
+            result = calendar(region_id=region_id)
+        else:
+            result = anomalies(region_id=region_id)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return 0 if result.get("status") == "ok" else 2
 
     if cmd == "report":
         from pipeline.db import fetch_all

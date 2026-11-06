@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
@@ -6,6 +7,15 @@ import { SeriesPage } from "@/pages/SeriesPage";
 import { MethodologyPage } from "@/pages/MethodologyPage";
 import { DataQualityPage } from "@/pages/DataQualityPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
+
+// MapLibre/Recharts são pesados: páginas de mapa carregam em chunk separado.
+const MapPage = lazy(() => import("@/pages/MapPage").then((m) => ({ default: m.MapPage })));
+const RegionsPage = lazy(() => import("@/pages/RegionsPage").then((m) => ({ default: m.RegionsPage })));
+const AnomaliesPage = lazy(() => import("@/pages/AnomaliesPage").then((m) => ({ default: m.AnomaliesPage })));
+
+function Loading() {
+  return <p className="text-sm text-neutral-500">Carregando módulo…</p>;
+}
 
 export function App() {
   return (
@@ -16,13 +26,11 @@ export function App() {
         <Route path="/series" element={<SeriesPage />} />
         <Route path="/data-quality" element={<DataQualityPage />} />
         <Route path="/methodology" element={<MethodologyPage />} />
-        {/* Mapas (globo 3D, plano, 3D realista) chegam na fase de mapas —
-            placeholder HONESTO, sem dados fictícios. */}
-        <Route path="/globe" element={<PlaceholderPage title="Globo 3D" phase="Fase 6 — mapas (Cesium/MapLibre + GIBS)" />} />
-        <Route path="/map" element={<PlaceholderPage title="Mapa plano" phase="Fase 6 — mapas (MapLibre + MVT)" />} />
-        <Route path="/map3d" element={<PlaceholderPage title="Mapa 3D realista" phase="Fase 6 — mapas (Cesium World Terrain / DEM aberto)" />} />
-        <Route path="/anomalies" element={<PlaceholderPage title="Anomalias" phase="Fase 5 — pipeline de anomalias" />} />
-        <Route path="/regions" element={<PlaceholderPage title="Regiões" phase="Fase 5 — malha IBGE + regiões" />} />
+        <Route path="/globe" element={<Suspense fallback={<Loading />}><MapPage initialMode="globe" /></Suspense>} />
+        <Route path="/map" element={<Suspense fallback={<Loading />}><MapPage initialMode="flat" /></Suspense>} />
+        <Route path="/map3d" element={<Suspense fallback={<Loading />}><MapPage initialMode="terrain" /></Suspense>} />
+        <Route path="/anomalies" element={<Suspense fallback={<Loading />}><AnomaliesPage /></Suspense>} />
+        <Route path="/regions" element={<Suspense fallback={<Loading />}><RegionsPage /></Suspense>} />
       </Route>
     </Routes>
   );

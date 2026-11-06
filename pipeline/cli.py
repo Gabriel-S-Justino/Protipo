@@ -24,8 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument("--days", type=int, default=1, help="Janela 1..5 (limite real da Area API)")
     p_fetch.add_argument("--date", help="Data inicial AAAA-MM-DD (opcional; sem ela = recentes)")
 
-    sub.add_parser("backfill", help="Backfill histórico paginado por janelas")
-
     p_ingest = sub.add_parser("ingest", help="Ingestão idempotente de arquivo local")
     p_ingest.add_argument("paths", nargs="+", help="Arquivo(s) CSV FIRMS (MODIS/VIIRS)")
     p_ingest.add_argument(
@@ -38,9 +36,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_valid.add_argument("paths", nargs="+")
     p_valid.add_argument("--source", required=True)
 
-    sub.add_parser("harmonize", help="Calibra MODIS→VIIRS (fase 4 — roteiro)")
-    sub.add_parser("calendar", help="Calendário probabilístico (fase 5 — roteiro)")
-    sub.add_parser("anomalies", help="Anomalias (fase 5 — roteiro)")
+    sub.add_parser("harmonize", help="Calibra MODIS→VIIRS e grava harmonized_series")
+    sub.add_parser("calendar", help="Calendário probabilístico mensal (empírico)")
+    sub.add_parser("anomalies", help="Anomalias mensais (zscore vs baseline do mês)")
+
+    for sub_an in (harmonize_p := sub.choices["harmonize"],
+                   sub.choices["calendar"], sub.choices["anomalies"]):
+        sub_an.add_argument("--region", type=int, default=1, help="ID da região (padrão 1 = Ceará)")
+    sub.choices["harmonize"].add_argument("--start", help="AAAA-MM-DD início do período (opcional)")
+    sub.choices["harmonize"].add_argument("--end", help="AAAA-MM-DD fim (opcional)")
+
+    backfill_p = sub.add_parser("backfill", help="Backfill histórico em janelas de 5 dias (cache + throttle)")
+    backfill_p.add_argument("--source", required=True, help="ex.: MODIS_SP, VIIRS_SNPP_SP")
+    backfill_p.add_argument("--start", required=True, help="data inicial AAAA-MM-DD")
+    backfill_p.add_argument("--end", required=True, help="data final AAAA-MM-DD (inclusiva)")
+    backfill_p.add_argument("--sleep", type=float, default=1.0, help="pausa entre janelas (s) — cortesia à API")
+    backfill_p.add_argument("--limit", type=int, default=0, help="máximo de janelas (0 = sem limite; útil p/ teste)")
     sub.add_parser("report", help="Relatório de ingestões/execuções")
 
     p_status = sub.add_parser("status", help="Data availability da FIRMS")

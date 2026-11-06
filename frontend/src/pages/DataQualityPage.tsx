@@ -39,12 +39,71 @@ export function DataQualityPage() {
       </div>
 
       <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="font-medium">Status das ingestões</h2>
-        <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          Relatórios por lote (fonte, sensor, totais, rejeitados, duplicados, erros) em <code>GET /api/ingestion/batches</code> —
-          fase 3 do plano; o comando <code>python -m pipeline report</code> já lista os lotes recentes.
-        </p>
+        <h2 className="font-medium">Lotes de ingestão</h2>
+        <IngestionBatches />
+      </div>
+
+      <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="font-medium">Fontes (proveniência)</h2>
+        <DataSources />
       </div>
     </section>
+  );
+}
+
+function IngestionBatches() {
+  const q = useQuery({ queryKey: ["ingestion-batches"], queryFn: () => api.ingestionBatches(20) });
+  if (q.isLoading) return <p className="mt-2 text-neutral-500">Carregando…</p>;
+  const rows = q.data ?? [];
+  if (!rows.length) return <p className="mt-2 text-neutral-500">Nenhum lote registrado ainda.</p>;
+  return (
+    <table className="mt-2 w-full text-left text-xs">
+      <thead className="text-neutral-500">
+        <tr>
+          <th className="py-1">Fonte</th>
+          <th>Dados</th>
+          <th className="text-right">Total</th>
+          <th className="text-right">Aceitos</th>
+          <th className="text-right">Rejeit.</th>
+          <th className="text-right">Duplic.</th>
+          <th className="pl-3">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((b) => (
+          <tr key={b.id} className="border-t border-neutral-100 dark:border-neutral-800">
+            <td className="py-1">{b.source_code}</td>
+            <td className="text-neutral-500">{b.period_start ?? "?"} → {b.period_end ?? "?"}</td>
+            <td className="text-right tabular-nums">{b.records_total}</td>
+            <td className="text-right tabular-nums">{b.records_accepted}</td>
+            <td className="text-right tabular-nums">{b.records_rejected}</td>
+            <td className="text-right tabular-nums">{b.records_duplicated}</td>
+            <td className="pl-3">{b.status}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function DataSources() {
+  const q = useQuery({ queryKey: ["data-sources"], queryFn: () => api.dataSources() });
+  if (q.isLoading) return <p className="mt-2 text-neutral-500">Carregando…</p>;
+  const rows = q.data ?? [];
+  if (!rows.length) return <p className="mt-2 text-neutral-500">Sem fontes registradas.</p>;
+  return (
+    <div className="mt-2 grid gap-2 md:grid-cols-2">
+      {rows.map((s) => (
+        <div key={s.code} className="rounded border border-neutral-100 p-2 text-xs dark:border-neutral-800">
+          <p className="font-mono font-medium">{s.code}</p>
+          <p className="text-neutral-500">
+            {s.satellite} · {s.product} · {s.mode} {s.active ? "· ativa" : "· inativa"}
+          </p>
+          <p className="text-neutral-500">
+            detecções: {s.detections} ({s.first_seen ?? "?"} → {s.last_seen ?? "?"})
+          </p>
+        </div>
+      ))}
+    </div>
   );
 }

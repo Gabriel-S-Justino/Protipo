@@ -106,7 +106,12 @@ class FireDetection(Base):
 
 
 class Region(Base):
-    """Regiões analíticas: estado, município IBGE ou região personalizada."""
+    """Regiões analíticas: estado, município IBGE ou região personalizada.
+
+    `is_demo` marca regiões de exemplo (dados DEMO NUNCA se misturam aos reais).
+    bbox_w/e/s/n: delimitação analítica (proposta provisória até ingestar a
+    malha IBGE oficial — a proveniência vem em boundary_file/boundary_version).
+    """
 
     __tablename__ = "regions"
 
@@ -117,6 +122,15 @@ class Region(Base):
     geocode: Mapped[str | None] = mapped_column(String(16))  # código IBGE do município
     boundary_file: Mapped[str | None] = mapped_column(Text)  # proveniência do shape/geojson
     boundary_version: Mapped[str | None] = mapped_column(String(64))  # versão/data da malha
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    bbox_w: Mapped[float | None] = mapped_column(Float, nullable=True)  # longitude oeste
+    bbox_e: Mapped[float | None] = mapped_column(Float, nullable=True)  # longitude leste
+    bbox_s: Mapped[float | None] = mapped_column(Float, nullable=True)  # latitude sul
+    bbox_n: Mapped[float | None] = mapped_column(Float, nullable=True)  # latitude norte
+
+    __table_args__ = (
+        Index("ix_regions_is_demo", "is_demo"),
+    )
 
 
 class SpatialCell(Base):
@@ -184,7 +198,7 @@ class HarmonizedSeries(Base):
     cell_id: Mapped[int | None] = mapped_column(ForeignKey("spatial_cells.id", ondelete="CASCADE"))
     period_type: Mapped[str] = mapped_column(String(8))  # day | week | month
     period_start: Mapped[date] = mapped_column(Date)
-    value_source: Mapped[str] = mapped_column(String(12))  # viirs_raw | modis_harmonized
+    value_source: Mapped[str] = mapped_column(String(24))  # viirs_raw | modis_harmonized
     instrument_used: Mapped[str] = mapped_column(String(12))  # MODIS | VIIRS
     value_raw: Mapped[float] = mapped_column(Float)
     value_viirs: Mapped[float] = mapped_column(Float)  # contagem na escala VIIRS
@@ -193,7 +207,7 @@ class HarmonizedSeries(Base):
     frp_sum: Mapped[float | None] = mapped_column(Float)
     method: Mapped[str | None] = mapped_column(String(32))
     model_id: Mapped[int | None] = mapped_column(ForeignKey("harmonization_models.id", ondelete="SET NULL"))
-    quality_flag: Mapped[str] = mapped_column(String(20), default="ok")  # ok | low_confidence | insufficient
+    quality_flag: Mapped[str] = mapped_column(String(24), default="ok")  # ok | low_confidence | insufficient
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
