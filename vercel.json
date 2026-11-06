@@ -3,7 +3,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm --prefix frontend install && pip install -r api/requirements.txt",
+  "installCommand": "npm --prefix frontend install && pip install --break-system-packages -r api/requirements.txt",
   "functions": {
     "api/**": {
       "memory": 1024,

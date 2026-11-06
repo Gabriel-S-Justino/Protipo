@@ -3,7 +3,14 @@
 > Este arquivo registra as **validações reais** exigidas pelo PromptMaster §1.3
 > e o byte a byte do deploy. Atualize a cada mudança da plataforma.
 
-## Validações feitas (2026-11-05)
+## Validações feitas (changelog de deploy)
+
+- **Deploy real #1** (2026-11-05, projeto "Protipo", iad1): build do frontend ✔; instalação da
+  function falhou com `externally-managed-environment` (Python do builder é gerenciado pelo
+  `uv`, PEP 668). **Correção**: `pip install --break-system-packages` no `installCommand`
+  (`vercel.json`). Documentação do comportamento do builder (Python uv-managed) registrada aqui.
+
+## Validações de APIs (2026-11-05)
 
 - FIRMS Area API **sem chave**: resposta `"Invalid MAP_KEY."` com HTTP 400 — endpoint confirmado
   (`/api/area/csv/{MAP_KEY}/{SOURCE}/{west,south,east,north}/{DAY_RANGE}/{DATE}`).
