@@ -1,0 +1,10 @@
+# Dependências da Vercel Function (API) — runtime Python.
+# Mantenha enxutas (limite de tamanho de bundle e cold start).
+# Sem GeoPandas/SciPy/scikit-learn/statsmodels/pandas pesado: isso é coisa do pipeline.
+# NOTA: api/requirements.txt e backend/requirements.txt devem manter os mesmos itens.
+fastapi==0.162.0
+pydantic==2.14.3
+pydantic-settings==2.16.2
+sqlalchemy==2.1.8
+psycopg[binary]==3.3.8
+alembic==1.20.1
