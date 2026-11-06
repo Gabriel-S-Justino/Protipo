@@ -20,6 +20,10 @@ export type Health = {
   env: string;
   database: string | null;
   version: string;
+  readiness?: string;
+  schema_revision?: string | null;
+  expected_revision?: string | null;
+  next_action?: string | null;
 };
 export type Coverage = {
   period_start: string | null;

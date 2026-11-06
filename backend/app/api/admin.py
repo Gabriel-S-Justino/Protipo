@@ -84,5 +84,5 @@ def run_migrations(X_Admin_Token: str = Header(default="")) -> dict:
         "status": "ok",
         "revision_before": before,
         "revision_after": after,
-        "note": "Migrations aplicadas (Alembic 0001_initial: PostGIS + 11 tabelas, seeds autom. não incluídos).",
+        "note": "Migrations aplicadas até head. A importação IBGE e a carga FIRMS são etapas separadas.",
     }

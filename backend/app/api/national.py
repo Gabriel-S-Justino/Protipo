@@ -13,10 +13,21 @@ def query(sql, params=None):
         return db.fetch_all(sql, params)
     except Exception as exc:
         logger.warning("Consulta nacional indisponível: %s", type(exc).__name__)
-        raise HTTPException(
-            503,
-            "Dados indisponíveis. Verifique DATABASE_URL, as migrações e o processamento nacional.",
-        ) from exc
+        original = getattr(exc, "orig", exc)
+        code = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+        if code in {"42P01", "42703"}:
+            message = "Banco conectado, mas a estrutura está desatualizada. Aplique a migração 0004_brazil_science."
+        elif code == "57014":
+            message = "A consulta excedeu o tempo disponível. Tente um período menor ou consulte o suporte."
+        elif code == "42501":
+            message = "O usuário do banco não tem permissão para consultar os dados necessários."
+        elif isinstance(exc, RuntimeError):
+            message = (
+                "Banco não configurado: verifique DATABASE_URL no ambiente de produção."
+            )
+        else:
+            message = "Não foi possível consultar os dados. Consulte o diagnóstico em /api/health."
+        raise HTTPException(503, message) from exc
 
 
 def region(region_id=None):

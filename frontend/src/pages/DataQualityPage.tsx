@@ -23,6 +23,17 @@ export function DataQualityPage() {
         <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm dark:border-neutral-800 dark:bg-neutral-900">
           <h2 className="font-medium">Ambiente</h2>
           <p className="mt-2">{statusLine}</p>
+          {healthQuery.data?.next_action && (
+            <p className="mt-2 rounded bg-amber-50 p-3 text-amber-950">
+              {healthQuery.data.next_action}
+            </p>
+          )}
+          {healthQuery.data?.schema_revision && (
+            <p className="mt-2 text-xs text-neutral-500">
+              Estrutura: {healthQuery.data.schema_revision} · esperada:{" "}
+              {healthQuery.data.expected_revision}
+            </p>
+          )}
           <p className="mt-1 text-neutral-500">
             app: {healthQuery.data?.env} · versão{" "}
             {healthQuery.data?.version || "—"} · banco:{" "}
@@ -34,7 +45,7 @@ export function DataQualityPage() {
           <h2 className="font-medium">Cobertura temporal</h2>
           <p className="mt-2 text-neutral-600 dark:text-neutral-400">
             {coverageQuery.error
-              ? "Não foi possível consultar a cobertura."
+              ? coverageQuery.error.message
               : coverageQuery.data?.period_start
                 ? `${coverageQuery.data.period_start} → ${coverageQuery.data.period_end}`
                 : "Sem dados carregados (ingestão pendente)."}

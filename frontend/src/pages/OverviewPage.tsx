@@ -44,9 +44,6 @@ export function OverviewPage() {
   }
 
   if (summaryQuery.error || coverageQuery.error) {
-    const status = (
-      (summaryQuery.error ?? coverageQuery.error) as { status?: number }
-    ).status;
     return (
       <div
         role="alert"
@@ -54,9 +51,8 @@ export function OverviewPage() {
       >
         <p className="font-medium">Dados reais indisponíveis.</p>
         <p className="mt-1 text-neutral-700 dark:text-neutral-300">
-          {status === 503
-            ? "Configure o banco (DATABASE_URL) e carregue dados via pipeline (docs/SETUP.md). Sem banco, não apresentamos números."
-            : "Não foi possível consultar a API. Verifique o backend e tente novamente."}
+          {(summaryQuery.error ?? coverageQuery.error)?.message ??
+            "Não foi possível consultar os dados."}
         </p>
       </div>
     );

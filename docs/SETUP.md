@@ -20,3 +20,19 @@ Não aproveite uma antiga carga do Ceará como histórico nacional.
 
 Sem chave/banco não é possível gerar estatísticas nacionais reais.
 A interface funciona e informa ausência/erro de dados sem fabricar probabilidades.
+
+
+## Banco conectado e consultas indisponíveis depois do deploy
+Consulte /api/health. O resultado agora separa conexão, versão do schema,
+limites IBGE, cobertura, harmonização e calendário. Database up não significa
+que o ambiente nacional esteja preparado. Não crie outro banco só por esse aviso.
+
+Se readiness=migration_pending, aplique 0004_brazil_science no banco existente.
+O workflow manual Preparar banco nacional em GitHub Actions faz as migrações e
+a importação IBGE usando o secret DATABASE_URL_DIRECT. Ele não roda em cada push.
+Alternativa: POST /api/admin/migrate com a administração habilitada e o token já
+configurado, depois python -m pipeline boundaries fora da Vercel.
+
+Depois, carregue os CSVs nacionais com metadados e rode harmonize/calendar.
+Preparar o schema não cria histórico nem probabilidades. O calendário exige pelo
+menos três anos com períodos completos. Não exponha URLs de conexão ou tokens no chat.

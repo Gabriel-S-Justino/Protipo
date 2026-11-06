@@ -12,6 +12,11 @@ class Health(BaseModel):
     env: str
     database: Optional[str] = None  # "up" | "down" | None (indisponível)
     version: str
+    readiness: str = "unknown"
+    schema_revision: Optional[str] = None
+    expected_revision: Optional[str] = None
+    checks: dict[str, bool] = Field(default_factory=dict)
+    next_action: Optional[str] = None
 
 
 class ApiError(BaseModel):
