@@ -36,3 +36,15 @@ configurado, depois python -m pipeline boundaries fora da Vercel.
 Depois, carregue os CSVs nacionais com metadados e rode harmonize/calendar.
 Preparar o schema não cria histórico nem probabilidades. O calendário exige pelo
 menos três anos com períodos completos. Não exponha URLs de conexão ou tokens no chat.
+
+
+## Falha de conexão com a API do IBGE no GitHub Actions
+O comando boundaries importa a cópia oficial versionada em pipeline/assets,
+sem chamar a API do IBGE durante a execução. A cópia inclui as 27 UFs, com
+proveniência e checksum SHA-256; o Brasil é a união dessas mesmas geometrias.
+São verificadas integridade, presença de todas as UFs, coordenadas e geometrias
+PostGIS antes de confirmar a transação.
+
+Após atualizar o código, abra Actions → Preparar banco nacional → Run workflow,
+selecionando main. Re-run jobs de uma execução antiga usa o commit antigo e
+pode repetir o timeout. A migração já aplicada é preservada por Alembic.

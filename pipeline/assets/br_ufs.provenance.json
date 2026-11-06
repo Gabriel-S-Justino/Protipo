@@ -1,0 +1,10 @@
+{
+  "source": "IBGE API de malhas v3",
+  "source_url": "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR?formato=application/vnd.geo+json&intrarregiao=UF&qualidade=minima",
+  "retrieved_at": "2026-11-06T13:15:02.403304+00:00",
+  "sha256": "07c671aa87aa1ab296c446de6294df9827112782537b996c0a160284907e7c0f",
+  "feature_count": 27,
+  "quality": "minima",
+  "coordinate_system": "WGS84 (EPSG:4326)",
+  "note": "Malha oficial simplificada para grade analítica de 0,5°. A data de coleta não é o ano de referência territorial."
+}

@@ -28,6 +28,5 @@ jobs:
         run: pip install -r backend/requirements.txt -r pipeline/requirements.txt
       - name: Aplicar migrações
         run: python -m alembic -c backend/alembic.ini upgrade head
-      - name: Importar Brasil e UFs
+      - name: Importar Brasil e UFs (snapshot oficial IBGE)
         run: python -m pipeline boundaries
-
