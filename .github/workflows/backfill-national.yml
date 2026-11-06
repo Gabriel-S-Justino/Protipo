@@ -1,0 +1,83 @@
+name: Carga histórica nacional
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Fontes para carregar"
+        type: choice
+        options:
+          - ambos
+          - VIIRS_NOAA20_SP
+          - MODIS_SP
+        default: ambos
+      start_date:
+        description: "Início inclusivo (AAAA-MM-DD)"
+        required: true
+        default: "2023-01-01"
+        type: string
+      end_date:
+        description: "Fim inclusivo (AAAA-MM-DD)"
+        required: true
+        default: "2025-12-31"
+        type: string
+      max_windows:
+        description: "Janelas pendentes por fonte nesta execução (5 dias cada; 0=todas)"
+        required: true
+        default: "30"
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: pipeline-national
+  cancel-in-progress: false
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+      MAP_KEY: ${{ secrets.MAP_KEY }}
+      SELECTED_SOURCE: ${{ inputs.source }}
+      START_DATE: ${{ inputs.start_date }}
+      END_DATE: ${{ inputs.end_date }}
+      MAX_WINDOWS: ${{ inputs.max_windows }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Validar credenciais
+        run: |
+          test -n "$MAP_KEY" || { echo "::error::MAP_KEY ausente"; exit 1; }
+          test -n "$DATABASE_URL_DIRECT" || { echo "::error::DATABASE_URL_DIRECT ausente"; exit 1; }
+      - name: Instalar dependências
+        run: pip install -r pipeline/requirements.txt
+      - name: Importar janelas históricas pendentes
+        run: |
+          set -euo pipefail
+          case "$SELECTED_SOURCE" in
+            ambos) sources=(VIIRS_NOAA20_SP MODIS_SP) ;;
+            VIIRS_NOAA20_SP|MODIS_SP) sources=("$SELECTED_SOURCE") ;;
+            *) echo "::error::Fonte inválida"; exit 1 ;;
+          esac
+          for sensor in "${sources[@]}"; do
+            python -m pipeline backfill --source "$sensor" --start "$START_DATE" --end "$END_DATE" --limit "$MAX_WINDOWS" --sleep 1 | tee "$RUNNER_TEMP/history-$sensor.json"
+            python - "$RUNNER_TEMP/history-$sensor.json" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json,sys
+          from pathlib import Path
+          result=json.loads(Path(sys.argv[1]).read_text())
+          with open(sys.argv[2],"a") as summary:
+              summary.write(f"### {result['source']}\n")
+              summary.write(f"Janelas concluídas nesta execução: {result['windows_completed']}\n\n")
+              summary.write(f"Janelas restantes no intervalo: **{result['windows_remaining']}**\n\n")
+              if result["windows_remaining"]:
+                  summary.write("Inicie outra execução com os mesmos parâmetros para continuar. Janelas já cobertas serão ignoradas.\n\n")
+          PY
+          done
+      - name: Atualizar série, calendário e anomalias
+        run: |
+          python -m pipeline harmonize
+          python -m pipeline calendar
+          python -m pipeline anomalies
+

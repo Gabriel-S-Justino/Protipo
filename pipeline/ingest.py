@@ -74,7 +74,12 @@ def ingest_file(path, source_code):
                 if not normalized.rejects
                 else 0
             )
-            return {"file": str(path), "status": "skipped", "coverage_days": covered}
+            return {
+                "file": str(path),
+                "status": "skipped",
+                "coverage_days": covered,
+                "rejected": len(normalized.rejects),
+            }
         source_id = get_source_id(source_code, conn)
         accepted = 0
         t0 = time.monotonic()

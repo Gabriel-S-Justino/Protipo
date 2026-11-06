@@ -22,7 +22,8 @@ jobs:
           MAP_KEY: ${{ secrets.MAP_KEY }}
           DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
         run: |
-          test -n "$MAP_KEY" && test -n "$DATABASE_URL_DIRECT"
+          test -n "$MAP_KEY" || { echo "::error::MAP_KEY ausente nos secrets"; exit 1; }
+          test -n "$DATABASE_URL_DIRECT" || { echo "::error::DATABASE_URL_DIRECT ausente nos secrets"; exit 1; }
       - name: Coletar, harmonizar e atualizar calendário nacional
         env:
           MAP_KEY: ${{ secrets.MAP_KEY }}

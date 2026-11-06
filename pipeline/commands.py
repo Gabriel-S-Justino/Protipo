@@ -90,4 +90,8 @@ def run(args):
     else:
         raise ValueError(f"Comando desconhecido: {cmd}")
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-    return 0 if result.get("status", "ok") == "ok" else 1
+    return (
+        0
+        if result.get("status", "ok") in {"ok", "insufficient_data", "in_progress"}
+        else 1
+    )

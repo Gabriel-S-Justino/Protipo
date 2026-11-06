@@ -42,6 +42,8 @@ npm --prefix frontend run build
 ```
 `scripts/test_browser.cjs` verifica o preview na porta 4173 com fixtures isoladas
 do navegador, sem inserir dados fictícios no produto.
+Para preencher o passado, execute o workflow manual **Carga histórica nacional**
+(`backfill-national.yml`); ele retoma pelas janelas já verificadas no banco.
 O workflow diário executa `python -m pipeline update`; requer limites já importados
 e secrets `MAP_KEY` e `DATABASE_URL_DIRECT`.
 

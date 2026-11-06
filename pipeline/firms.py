@@ -37,9 +37,14 @@ def _key():
 
 
 def data_availability(source):
-    response = requests.get(
-        f"{FIRMS_BASE}/data_availability/csv/{_key()}/{source}", timeout=60
-    )
+    try:
+        response = requests.get(
+            f"{FIRMS_BASE}/data_availability/csv/{_key()}/{source}", timeout=60
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Não foi possível consultar a disponibilidade FIRMS de {source}."
+        ) from exc
     if not response.ok:
         raise RuntimeError(
             f"Disponibilidade FIRMS indisponível (HTTP {response.status_code})."

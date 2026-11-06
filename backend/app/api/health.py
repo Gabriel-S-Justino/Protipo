@@ -92,7 +92,7 @@ def health_snapshot():
             (
                 "calendar",
                 "calendar_pending",
-                "Execute calendar após reunir pelo menos três anos de períodos completos.",
+                "Carregue o histórico nacional pelo workflow Carga histórica nacional e execute calendar após reunir três anos de períodos completos.",
             ),
         ]:
             if not data.get(key):

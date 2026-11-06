@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=0,
-        help="máximo de janelas (0 = sem limite; útil p/ teste)",
+        help="máximo de janelas pendentes por execução (0 = todas; retoma pela cobertura)",
     )
     sub.add_parser("report", help="Relatório de ingestões/execuções")
 

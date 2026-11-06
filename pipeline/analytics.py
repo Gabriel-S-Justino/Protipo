@@ -310,9 +310,14 @@ def calendar(region_id=None):
                     written += 1
         rows.close()
         if not written:
-            raise RuntimeError(
-                "Sem estimativas: são necessários pelo menos 3 anos com cobertura completa."
-            )
+            return {
+                "status": "insufficient_data",
+                "rows": 0,
+                "minimum_years": 3,
+                "covered_viirs_days": len(direct),
+                "note": "Sem estimativas: são necessários pelo menos 3 anos com períodos completos.",
+                "next_action": "Execute o workflow Carga histórica nacional; a atualização diária coleta apenas os dias recentes.",
+            }
     return {
         "status": "ok",
         "rows": written,

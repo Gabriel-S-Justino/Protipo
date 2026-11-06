@@ -48,3 +48,30 @@ PostGIS antes de confirmar a transação.
 Após atualizar o código, abra Actions → Preparar banco nacional → Run workflow,
 selecionando main. Re-run jobs de uma execução antiga usa o commit antigo e
 pode repetir o timeout. A migração já aplicada é preservada por Alembic.
+
+
+## Histórico insuficiente após pipeline update
+update coleta apenas dois dias recentes. O calendário retorna
+status=insufficient_data quando não há três anos com períodos completos; isso
+é uma pendência de dados e não encerra a atualização diária com erro.
+
+No GitHub Actions, execute Carga histórica nacional na main:
+- source: ambos (VIIRS_NOAA20_SP e MODIS_SP);
+- start_date: 2023-01-01;
+- end_date: 2025-12-31;
+- max_windows: 30 por fonte para limitar cada execução.
+
+Repita a execução com os mesmos parâmetros enquanto windows_remaining for maior
+que zero. O checkpoint fica em acquisition_coverage no banco, inclusive para
+janelas sem focos. As janelas já confirmadas são puladas antes de baixar arquivos.
+Não é necessário mudar o início manualmente. Esse intervalo inicial serve como
+base mínima; a semana ISO 53 pode continuar sem amostra suficiente.
+
+A carga brasileira pode conter milhões de registros e consumir armazenamento e
+computação do banco. Monitore os limites do seu plano e ajuste max_windows.
+Um workflow concluído com status in_progress significa que a parcela solicitada
+terminou; não significa que o histórico inteiro ou o calendário estejam prontos.
+Falhas reais de rede, disponibilidade ou ingestão continuam retornando erro.
+
+O calendário só publica períodos com pelo menos três anos completos por área.
+A harmonização MODIS exige também calibração validada no período compartilhado.
