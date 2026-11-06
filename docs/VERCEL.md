@@ -10,6 +10,14 @@
   `uv`, PEP 668). **Correção**: `pip install --break-system-packages` no `installCommand`
   (`vercel.json`). Documentação do comportamento do builder (Python uv-managed) registrada aqui.
 
+## Painel de diagnósticos reais validados durante o deploy
+
+- **Pooler do Neon**: REJEITA startup parameter `options: statement_timeout`
+  (`unsupported startup parameter in options`); só funciona com unpooled ou removendo-o.
+  Implementado: sem `options` no `connect_args` (`backend/app/core/db.py`); timeout de sessão
+  opcional via `SET statement_timeout=...` no SQL quando necessário.
+- Região do Neon criada: `us-east-1` (iad1) — endpoint `ep-rough-frost-...`.
+
 ## Validações de APIs (2026-11-05)
 
 - FIRMS Area API **sem chave**: resposta `"Invalid MAP_KEY."` com HTTP 400 — endpoint confirmado

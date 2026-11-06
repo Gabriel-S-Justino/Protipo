@@ -3,7 +3,13 @@
 - A API usa SEMPRE a URL pooled (Neon pooler / Supabase pooler).
 - Sem estado entre requisições: NullPool evita conexões órfãs em serverless
   (o pool externo do provedor faz o pooling real).
-- statement_timeout defensivo para respeitar limites de duração da Vercel.
+- ⚠ LIMITAÇÃO VALIDADA (deploy real, 2026-11-05): o pooler do Neon REJEITA o
+  startup parameter `options: statement_timeout`
+  ("unsupported startup parameter in options: statement_timeout").
+  Por isso NÃO injetamos statement_timeout via options; a proteção de tempo é
+  garantida por: consultas pré-calculadas + LIMIT máximos (settings.max_limit).
+- statement_timeout DE SÉSSÃO pode ser aplicado com `SET statement_timeout=...`
+  direto no SQL (funciona com o pooler) — usar somente quando necessário.
 """
 
 from typing import Any
@@ -27,10 +33,11 @@ def get_engine() -> Engine:
                 "Banco não configurado: defina DATABASE_URL (manual) ou crie o banco pela "
                 "integração da Vercel (Database Marketplace) — ver docs/SETUP.md."
             )
+        # NÃO usar connect_args={'options': ...}: Neon pooler rejeita (ver docstring).
         _engine = create_engine(
             url,
             poolclass=__import__("sqlalchemy").pool.NullPool,
-            connect_args={"options": f"-c statement_timeout={settings.query_timeout_ms}"},
+            connect_args={"sslmode": "require", "connect_timeout": 10},
         )
     return _engine
 
