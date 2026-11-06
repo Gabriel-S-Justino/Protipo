@@ -11,6 +11,8 @@ Regras científicas/código:
 
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -106,7 +108,9 @@ def _pick(header: list[str], row: list[str], field_name: str) -> str | None:
     return None
 
 
-def parse_confidence(value: str | None, is_modis: bool) -> tuple[str | None, float | None]:
+def parse_confidence(
+    value: str | None, is_modis: bool
+) -> tuple[str | None, float | None]:
     """MODIS 0-100 numérico; VIIRS l/n/h → 0/50/100 (ordinal documentada, aproximação)."""
     if value is None:
         return None, None
@@ -163,7 +167,12 @@ def normalize_row(
     lat = _to_float(_pick(header, row, "latitude"))
     lon = _to_float(_pick(header, row, "longitude"))
     problems: list[str] = []
-    if lat is None or lon is None or not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+    if (
+        lat is None
+        or lon is None
+        or not (-90.0 <= lat <= 90.0)
+        or not (-180.0 <= lon <= 180.0)
+    ):
         problems.append("coordenadas ausentes/inválidas")
 
     date_s = _pick(header, row, "acquired_date")
@@ -182,7 +191,12 @@ def normalize_row(
 
     sat_s = _pick(header, row, "satellite")
     if sat_s and not is_modis:
-        satellite = sat_s
+        satellite = {
+            "S-NPP": "Suomi-NPP",
+            "SNPP": "Suomi-NPP",
+            "N20": "NOAA-20",
+            "N21": "NOAA-21",
+        }.get(sat_s, sat_s)
     elif is_modis and sat_s:
         # MODIS: coluna 'satellite' pode ser 'T'/'A' → expande para nome legível.
         satellite = {"T": "Terra", "A": "Aqua"}.get(sat_s, sat_s)
@@ -226,16 +240,18 @@ def normalize_csv_text(text: str, source_code: str) -> NormalizeResult:
     result = NormalizeResult()
     seen: set[tuple] = set()
     header: list[str] | None = None
-    for line_no, line in enumerate(text.splitlines(), start=1):
-        line = line.strip()
-        if not line:
+    for line_no, row in enumerate(
+        csv.reader(io.StringIO(text.lstrip("\ufeff"))), start=1
+    ):
+        if not row or not any(c.strip() for c in row):
             continue
         if header is None:
-            header = detect_header(line)
+            header = [c.strip() for c in row]
             continue
-        row = [c.strip().strip('"') for c in line.split(",")]
         try:
             normalize_row(header, row, source_code, line_no, result, seen)
-        except Exception as exc:  # noqa: BLE001 — nunca abortar o arquivo por 1 linha ruim
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — nunca abortar o arquivo por 1 linha ruim
             result.rejects.append(Reject(line_no=line_no, reason=f"exceção: {exc}"))
     return result

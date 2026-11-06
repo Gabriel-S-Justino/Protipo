@@ -1,132 +1,93 @@
-"""Implementação dos comandos da CLI (delegação de `python -m pipeline <comando>`)."""
+"""National pipeline command dispatch."""
 
-from __future__ import annotations
-
-import argparse
 import json
+from datetime import date, timedelta, datetime, timezone
+from pathlib import Path
 
 
-def run(args: argparse.Namespace) -> int:
+def run(args):
     cmd = args.command
-    if cmd == "fetch":
-        from pipeline.firms import fetch_area
+    if cmd == "boundaries":
+        from pipeline.geography import boundaries
 
-        # Bbox padrão: Ceará. Sem --date = últimos --days dias (NRT).
-        csv = fetch_area(
-            args.source,
-            (-39.3, -7.9, -37.2, -2.8),
-            day_range=args.days,
-            date=args.date,
-        )
-        # fetch_area grava em data/raw com nome <source>_<hash>.csv (cache).
-        from pathlib import Path
+        result = boundaries()
+    elif cmd == "update":
+        from pipeline.firms import fetch_area, _cache_path
+        from pipeline.geography import BRAZIL_BBOX
+        from pipeline.ingest import ingest
+        from pipeline.analytics import harmonize, calendar, anomalies
 
-        from pipeline.firms import _cache_path  # noqa: PLC0415 — cache determinístico
+        # Complete UTC days; failures stop publication and are visible to CI.
+        begin = (datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat()
+        for source in ("VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "MODIS_NRT"):
+            fetch_area(source, BRAZIL_BBOX, 2, begin)
+            ingest([str(_cache_path(source, BRAZIL_BBOX, 2, begin))], source)
+        result = {
+            "status": "ok",
+            "harmonize": harmonize(),
+            "calendar": calendar(),
+            "anomalies": anomalies(),
+        }
+    elif cmd == "fetch":
+        from pipeline.firms import fetch_area, _cache_path
+        from pipeline.geography import BRAZIL_BBOX
 
-        path = _cache_path(args.source, (-39.3, -7.9, -37.2, -2.8), args.days, args.date)
-        if csv.strip():
-            n_rows = max(0, len(csv.strip().splitlines()) - 1)
-            print(
-                json.dumps(
-                    {"source": args.source, "file": str(path), "rows": n_rows,
-                     "next_step": f"python -m pipeline ingest {path} --source {args.source}"},
-                    indent=2,
-                )
-            )
-        else:
-            print(json.dumps({"source": args.source, "file": str(path), "rows": 0,
-                              "note": "sem detecções na janela (resposta vazia da FIRMS)"}))
-        return 0
-
-    if cmd == "ingest":
+        payload = fetch_area(args.source, BRAZIL_BBOX, args.days, args.date)
+        result = {
+            "source": args.source,
+            "file": str(_cache_path(args.source, BRAZIL_BBOX, args.days, args.date)),
+            "rows": max(0, len(payload.strip().splitlines()) - 1),
+        }
+    elif cmd == "ingest":
         from pipeline.ingest import ingest
 
-        report = ingest(args.paths, args.source)
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 0
-
-    if cmd == "validate":
-        from pathlib import Path
-
+        result = ingest(args.paths, args.source)
+    elif cmd == "validate":
         from pipeline.normalization import normalize_csv_text
 
-        for p in args.paths:
-            text_csv = Path(p).read_text(encoding="utf-8", errors="replace")
-            result = normalize_csv_text(text_csv, args.source)
-            print(
-                json.dumps(
-                    {
-                        "file": p,
-                        "accepted": len(result.records),
-                        "rejected": len(result.rejects),
-                        "duplicated_in_file": result.duplicates_in_file,
-                        "rejects_sample": [r.__dict__ for r in result.rejects[:10]],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
+        results = []
+        for name in args.paths:
+            normalized = normalize_csv_text(
+                Path(name).read_text(encoding="utf-8-sig"), args.source
             )
-        return 0
-
-    if cmd == "backfill":
+            results.append(
+                {
+                    "file": name,
+                    "accepted": len(normalized.records),
+                    "rejected": len(normalized.rejects),
+                }
+            )
+        result = {"files": results}
+    elif cmd == "backfill":
         from pipeline.backfill import run_backfill
 
-        report = run_backfill(
-            source=args.source,
-            start=args.start,
-            end=args.end,
-            sleep_s=args.sleep,
-            limit=args.limit,
-        )
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 0 if report.get("status") == "ok" else 1
+        result = run_backfill(args.source, args.start, args.end, args.sleep, args.limit)
+    elif cmd in ("harmonize", "calendar", "anomalies"):
+        from pipeline import analytics
 
-    if cmd in ("harmonize", "calendar", "anomalies"):
-        from pipeline.analytics import anomalies, calendar, harmonize
-
-        region_id = getattr(args, "region", None) or 1
-        if cmd == "harmonize":
-            result = harmonize(region_id=region_id, start=args.start, end=args.end)
-        elif cmd == "calendar":
-            result = calendar(region_id=region_id)
-        else:
-            result = anomalies(region_id=region_id)
-        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-        return 0 if result.get("status") == "ok" else 2
-
-    if cmd == "report":
-        from pipeline.db import fetch_all
-
-        rows = fetch_all(
-            """
-            SELECT id, source_code, status, records_total, records_accepted, records_rejected,
-                   records_duplicated, created_at
-            FROM ingestion_batches ORDER BY id DESC LIMIT 20
-            """
-        )
-        print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
-        return 0
-
-    if cmd == "status":
+        result = getattr(analytics, cmd)()
+    elif cmd == "status":
         from pipeline.firms import data_availability
 
-        try:
-            print(data_availability(args.sensor))
-        except RuntimeError as exc:
-            print(f"AVISO: {exc}")
-            return 2
+        print(data_availability(args.sensor))
         return 0
+    elif cmd == "report":
+        from pipeline.db import fetch_all
 
-    if cmd == "seed-demo":
+        result = {
+            "batches": fetch_all(
+                "SELECT * FROM ingestion_batches ORDER BY id DESC LIMIT 20"
+            )
+        }
+    elif cmd == "seed-demo":
         from pipeline.demo import seed_demo
 
-        print(json.dumps(seed_demo(rows=args.rows, years=args.years), indent=2))
-        return 0
-
-    if cmd == "clear-demo":
+        result = seed_demo(args.rows, args.years)
+    elif cmd == "clear-demo":
         from pipeline.demo import clear_demo
 
-        print(json.dumps(clear_demo(), indent=2))
-        return 0
-
-    raise AssertionError(f"comando desconhecido: {cmd}")
+        result = clear_demo()
+    else:
+        raise ValueError(f"Comando desconhecido: {cmd}")
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    return 0 if result.get("status", "ok") == "ok" else 1

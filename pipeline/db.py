@@ -21,7 +21,12 @@ def get_engine() -> Engine:
                 "DATABASE_URL_DIRECT (ou DATABASE_URL) não configurada — ver .env.example "
                 "e docs/SETUP.md. O pipeline usa a conexão DIRETA (não pooled)."
             )
-        _engine = create_engine(settings.database_url_direct, pool_pre_ping=True)
+        _engine = create_engine(
+            settings.database_url_direct.replace(
+                "postgres://", "postgresql://", 1
+            ).replace("postgresql://", "postgresql+psycopg://", 1),
+            pool_pre_ping=True,
+        )
     return _engine
 
 
@@ -31,13 +36,14 @@ def fetch_all(query: str, params: dict[str, Any] | None = None) -> list[dict[str
         return [dict(row._mapping) for row in result]
 
 
-def fetch_one(query: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def fetch_one(
+    query: str, params: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     rows = fetch_all(query, params)
     return rows[0] if rows else None
 
 
-INSERT_DETECTION_SQL = text(
-    """
+INSERT_DETECTION_SQL = text("""
     INSERT INTO fire_detections (
       source_id, satellite, instrument, acquired_at, lat, lon, geom, daynight,
       confidence_raw, confidence_norm, frp, brightness, bright_t31, scan, track,
@@ -49,5 +55,4 @@ INSERT_DETECTION_SQL = text(
       :version, CAST(:raw_attributes AS jsonb), :is_demo
     )
     ON CONFLICT DO NOTHING
-    """
-)
+    """)

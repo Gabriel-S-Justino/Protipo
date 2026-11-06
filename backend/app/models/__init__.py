@@ -7,7 +7,19 @@ A fonte da verdade do DDL são as migrations em backend/migrations.
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -20,10 +32,16 @@ class DataSource(Base):
     __tablename__ = "data_sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(32), unique=True)  # ex.: VIIRS_SNPP_SP, MODIS_SP
+    code: Mapped[str] = mapped_column(
+        String(32), unique=True
+    )  # ex.: VIIRS_SNPP_SP, MODIS_SP
     sensor: Mapped[str] = mapped_column(String(16))  # MODIS | VIIRS
-    satellite: Mapped[str] = mapped_column(String(24))  # Terra | Aqua | S-NPP | NOAA-20 | NOAA-21
-    product: Mapped[str] = mapped_column(String(32))  # C6.1 (SP/NRT) | VNP14IMGML | VNP14IMGTDL ...
+    satellite: Mapped[str] = mapped_column(
+        String(24)
+    )  # Terra | Aqua | S-NPP | NOAA-20 | NOAA-21
+    product: Mapped[str] = mapped_column(
+        String(32)
+    )  # C6.1 (SP/NRT) | VNP14IMGML | VNP14IMGTDL ...
     mode: Mapped[str] = mapped_column(String(8))  # SP (reprocessado) | NRT
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -44,14 +62,20 @@ class IngestionBatch(Base):
     records_accepted: Mapped[int] = mapped_column(Integer, default=0)
     records_rejected: Mapped[int] = mapped_column(Integer, default=0)
     records_duplicated: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|ok|error|partial
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending"
+    )  # pending|ok|error|partial
     pipeline_version: Mapped[str] = mapped_column(String(32))
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     errors: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     duration_s: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
-    __table_args__ = (Index("ix_ingestion_batches_checksum", "checksum", unique=True),)
+    __table_args__ = (
+        Index("ix_ingestion_batches_checksum", "source_code", "checksum", unique=True),
+    )
 
 
 class PipelineRun(Base):
@@ -61,9 +85,13 @@ class PipelineRun(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     command: Mapped[str] = mapped_column(String(32))
-    status: Mapped[str] = mapped_column(String(16), default="running")  # running|ok|error
+    status: Mapped[str] = mapped_column(
+        String(16), default="running"
+    )  # running|ok|error
     pipeline_version: Mapped[str] = mapped_column(String(32))
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -76,17 +104,25 @@ class FireDetection(Base):
     __tablename__ = "fire_detections"
 
     detection_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    source_id: Mapped[int] = mapped_column(ForeignKey("data_sources.id", ondelete="RESTRICT"))
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("data_sources.id", ondelete="RESTRICT")
+    )
     source_record_id: Mapped[str | None] = mapped_column(String(64))
-    satellite: Mapped[str] = mapped_column(String(24))  # Terra/Aqua/Suomi-NPP/NOAA-20/NOAA-21
+    satellite: Mapped[str] = mapped_column(
+        String(24)
+    )  # Terra/Aqua/Suomi-NPP/NOAA-20/NOAA-21
     instrument: Mapped[str] = mapped_column(String(12))  # MODIS | VIIRS
     acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     # geom é criado pela migration (geometry(Point,4326) com índice GiST)
     daynight: Mapped[str] = mapped_column(String(1), default="D")  # D|N
-    confidence_raw: Mapped[str | None] = mapped_column(String(16))  # 0-100 ou l/n/h (original)
-    confidence_norm: Mapped[float | None] = mapped_column(Float)  # escala comum documentada
+    confidence_raw: Mapped[str | None] = mapped_column(
+        String(16)
+    )  # 0-100 ou l/n/h (original)
+    confidence_norm: Mapped[float | None] = mapped_column(
+        Float
+    )  # escala comum documentada
     frp: Mapped[float | None] = mapped_column(Float)
     brightness: Mapped[float | None] = mapped_column(Float)
     bright_t31: Mapped[float | None] = mapped_column(Float)
@@ -95,11 +131,22 @@ class FireDetection(Base):
     version: Mapped[float | None] = mapped_column(Float)
     raw_attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     __table_args__ = (
-        Index("ix_fire_detections_idem", "satellite", "acquired_at", "lat", "lon", "daynight",
-              "confidence_raw", unique=True),
+        Index(
+            "ix_fire_detections_idem",
+            "source_id",
+            "satellite",
+            "acquired_at",
+            "lat",
+            "lon",
+            "daynight",
+            "confidence_raw",
+            unique=True,
+        ),
         Index("ix_fire_detections_date_sat", "acquired_at", "instrument"),
         Index("ix_fire_detections_demo", "is_demo"),
     )
@@ -118,19 +165,27 @@ class Region(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     level: Mapped[str] = mapped_column(String(12))  # state | municipality | custom
     name: Mapped[str] = mapped_column(String(128))
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="CASCADE"))
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regions.id", ondelete="CASCADE")
+    )
     geocode: Mapped[str | None] = mapped_column(String(16))  # código IBGE do município
-    boundary_file: Mapped[str | None] = mapped_column(Text)  # proveniência do shape/geojson
-    boundary_version: Mapped[str | None] = mapped_column(String(64))  # versão/data da malha
+    boundary_file: Mapped[str | None] = mapped_column(
+        Text
+    )  # proveniência do shape/geojson
+    boundary_version: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # versão/data da malha
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
-    bbox_w: Mapped[float | None] = mapped_column(Float, nullable=True)  # longitude oeste
-    bbox_e: Mapped[float | None] = mapped_column(Float, nullable=True)  # longitude leste
+    bbox_w: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )  # longitude oeste
+    bbox_e: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )  # longitude leste
     bbox_s: Mapped[float | None] = mapped_column(Float, nullable=True)  # latitude sul
     bbox_n: Mapped[float | None] = mapped_column(Float, nullable=True)  # latitude norte
 
-    __table_args__ = (
-        Index("ix_regions_is_demo", "is_demo"),
-    )
+    __table_args__ = (Index("ix_regions_is_demo", "is_demo"),)
 
 
 class SpatialCell(Base):
@@ -139,12 +194,16 @@ class SpatialCell(Base):
     __tablename__ = "spatial_cells"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    resolution: Mapped[str] = mapped_column(String(12))  # ex.: "viirs375m" | "modis1km" | "h3_10km"
+    resolution: Mapped[str] = mapped_column(
+        String(12)
+    )  # ex.: "viirs375m" | "modis1km" | "h3_10km"
     cell_key: Mapped[str] = mapped_column(String(64))
     center_lat: Mapped[float] = mapped_column(Float)
     center_lon: Mapped[float] = mapped_column(Float)
 
-    __table_args__ = (Index("ix_spatial_cells_res_key", "resolution", "cell_key", unique=True),)
+    __table_args__ = (
+        Index("ix_spatial_cells_res_key", "resolution", "cell_key", unique=True),
+    )
 
 
 class CellPeriodAggregate(Base):
@@ -153,7 +212,9 @@ class CellPeriodAggregate(Base):
     __tablename__ = "cell_period_aggregates"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    cell_id: Mapped[int] = mapped_column(ForeignKey("spatial_cells.id", ondelete="CASCADE"))
+    cell_id: Mapped[int] = mapped_column(
+        ForeignKey("spatial_cells.id", ondelete="CASCADE")
+    )
     period_type: Mapped[str] = mapped_column(String(8))  # day | week | month
     period_start: Mapped[date] = mapped_column(Date)
     satellite: Mapped[str] = mapped_column(String(24))
@@ -161,7 +222,9 @@ class CellPeriodAggregate(Base):
     daynight: Mapped[str | None] = mapped_column(String(1))
     count: Mapped[int] = mapped_column(Integer, default=0)
     frp_sum: Mapped[float | None] = mapped_column(Float)
-    confidence_dist: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # {l:..,n:..,h:..} ou buckets
+    confidence_dist: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB
+    )  # {l:..,n:..,h:..} ou buckets
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
@@ -176,16 +239,24 @@ class HarmonizationModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
-    method: Mapped[str] = mapped_column(String(32))  # ratio | robust_regression | count_model | quantile_map
+    method: Mapped[str] = mapped_column(
+        String(32)
+    )  # ratio | robust_regression | count_model | quantile_map
     region_level: Mapped[str | None] = mapped_column(String(12))
     calib_start: Mapped[date | None] = mapped_column(Date)
     calib_end: Mapped[date | None] = mapped_column(Date)
     daynight: Mapped[str | None] = mapped_column(String(1))
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # MAE, viés, correlação, cobertura...
-    quality: Mapped[str] = mapped_column(String(20), default="low")  # low | medium | high
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB
+    )  # MAE, viés, correlação, cobertura...
+    quality: Mapped[str] = mapped_column(
+        String(20), default="low"
+    )  # low | medium | high
     pipeline_version: Mapped[str] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class HarmonizedSeries(Base):
@@ -194,24 +265,37 @@ class HarmonizedSeries(Base):
     __tablename__ = "harmonized_series"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="CASCADE"))
-    cell_id: Mapped[int | None] = mapped_column(ForeignKey("spatial_cells.id", ondelete="CASCADE"))
+    region_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regions.id", ondelete="CASCADE")
+    )
+    cell_id: Mapped[int | None] = mapped_column(
+        ForeignKey("spatial_cells.id", ondelete="CASCADE")
+    )
     period_type: Mapped[str] = mapped_column(String(8))  # day | week | month
     period_start: Mapped[date] = mapped_column(Date)
-    value_source: Mapped[str] = mapped_column(String(24))  # viirs_raw | modis_harmonized
+    value_source: Mapped[str] = mapped_column(
+        String(24)
+    )  # viirs_raw | modis_harmonized
     instrument_used: Mapped[str] = mapped_column(String(12))  # MODIS | VIIRS
     value_raw: Mapped[float] = mapped_column(Float)
     value_viirs: Mapped[float] = mapped_column(Float)  # contagem na escala VIIRS
     ci_low: Mapped[float | None] = mapped_column(Float)
     ci_high: Mapped[float | None] = mapped_column(Float)
     frp_sum: Mapped[float | None] = mapped_column(Float)
+    coverage_fraction: Mapped[float | None] = mapped_column(Float)
     method: Mapped[str | None] = mapped_column(String(32))
-    model_id: Mapped[int | None] = mapped_column(ForeignKey("harmonization_models.id", ondelete="SET NULL"))
-    quality_flag: Mapped[str] = mapped_column(String(24), default="ok")  # ok | low_confidence | insufficient
+    model_id: Mapped[int | None] = mapped_column(
+        ForeignKey("harmonization_models.id", ondelete="SET NULL")
+    )
+    quality_flag: Mapped[str] = mapped_column(
+        String(24), default="ok"
+    )  # ok | low_confidence | insufficient
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
-        Index("ix_hseries_lookup", "region_id", "cell_id", "period_type", "period_start"),
+        Index(
+            "ix_hseries_lookup", "region_id", "cell_id", "period_type", "period_start"
+        ),
     )
 
 
@@ -222,19 +306,31 @@ class CalendarProbability(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     region_id: Mapped[int] = mapped_column(ForeignKey("regions.id", ondelete="CASCADE"))
-    cell_id: Mapped[int | None] = mapped_column(ForeignKey("spatial_cells.id", ondelete="CASCADE"))
-    period_type: Mapped[str] = mapped_column(String(8), default="week")  # day | week | month
+    cell_id: Mapped[int | None] = mapped_column(
+        ForeignKey("spatial_cells.id", ondelete="CASCADE")
+    )
+    period_type: Mapped[str] = mapped_column(
+        String(8), default="week"
+    )  # day | week | month
     period_of_year: Mapped[int] = mapped_column(Integer)  # semana 1-53, mês 1-12 ou doy
-    probability: Mapped[float] = mapped_column(Float)  # P(≥1 foco VIIRS-equiv. no período)
+    probability: Mapped[float] = mapped_column(
+        Float
+    )  # P(≥1 foco VIIRS-equiv. no período)
     ci_low: Mapped[float | None] = mapped_column(Float)
     ci_high: Mapped[float | None] = mapped_column(Float)
     years_used: Mapped[int] = mapped_column(Integer, default=0)
+    eligible_years: Mapped[int | None] = mapped_column(Integer)
+    validation: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     expected_count: Mapped[float | None] = mapped_column(Float)
-    harmonized_share: Mapped[float | None] = mapped_column(Float)  # fração da amostra harmonizada
+    harmonized_share: Mapped[float | None] = mapped_column(
+        Float
+    )  # fração da amostra harmonizada
     method: Mapped[str] = mapped_column(String(32))
     pipeline_version: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[str] = mapped_column(String(20), default="low")
-    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
@@ -248,15 +344,33 @@ class AnomalyResult(Base):
     __tablename__ = "anomaly_results"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="CASCADE"))
-    cell_id: Mapped[int | None] = mapped_column(ForeignKey("spatial_cells.id", ondelete="CASCADE"))
+    region_id: Mapped[int | None] = mapped_column(
+        ForeignKey("regions.id", ondelete="CASCADE")
+    )
+    cell_id: Mapped[int | None] = mapped_column(
+        ForeignKey("spatial_cells.id", ondelete="CASCADE")
+    )
     period_start: Mapped[date] = mapped_column(Date)
     period_end: Mapped[date] = mapped_column(Date)
     observed: Mapped[float] = mapped_column(Float)
     expected: Mapped[float | None] = mapped_column(Float)
     score: Mapped[float | None] = mapped_column(Float)
-    level: Mapped[str] = mapped_column(String(12), default="info")  # info | warning | alert
+    level: Mapped[str] = mapped_column(
+        String(12), default="info"
+    )  # info | warning | alert
     method: Mapped[str] = mapped_column(String(32))
     notes: Mapped[str | None] = mapped_column(Text)
     pipeline_version: Mapped[str] = mapped_column(String(32))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AcquisitionCoverage(Base):
+    """Successfully downloaded and ingested national source days, including zeros."""
+
+    __tablename__ = "acquisition_coverage"
+    source_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), primary_key=True, default="BR")
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

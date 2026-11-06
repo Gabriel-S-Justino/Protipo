@@ -35,7 +35,9 @@ def get_engine() -> Engine:
             )
         # NÃO usar connect_args={'options': ...}: Neon pooler rejeita (ver docstring).
         _engine = create_engine(
-            url,
+            url.replace("postgres://", "postgresql://", 1).replace(
+                "postgresql://", "postgresql+psycopg://", 1
+            ),
             poolclass=__import__("sqlalchemy").pool.NullPool,
             connect_args={"sslmode": "require", "connect_timeout": 10},
         )
@@ -45,10 +47,16 @@ def get_engine() -> Engine:
 def fetch_all(query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Executa uma consulta SELECT parametrizada (sem SQL injection) e devolve dicts."""
     with get_engine().connect() as conn:
+        conn.execute(
+            text("SELECT set_config('statement_timeout', :timeout, true)"),
+            {"timeout": str(get_settings().query_timeout_ms)},
+        )
         result = conn.execute(text(query), params or {})
         return [dict(row._mapping) for row in result]
 
 
-def fetch_one(query: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def fetch_one(
+    query: str, params: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     rows = fetch_all(query, params)
     return rows[0] if rows else None

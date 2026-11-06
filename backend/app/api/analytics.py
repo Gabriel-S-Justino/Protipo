@@ -14,35 +14,32 @@ def list_anomalies(
     region_id: int | None = Query(None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[dict]:
-    settings = get_settings()
-    if not settings.api_database_url:
-        raise HTTPException(status_code=503, detail="Banco não conectado; ver docs/SETUP.md.")
-    sql = """
-        SELECT a.id, a.region_id, r.name AS region_name, a.period_start, a.period_end,
-               a.observed, a.expected, a.score, a.level, a.method, a.notes, a.is_demo
-        FROM anomaly_results a
-        LEFT JOIN regions r ON r.id = a.region_id
-        WHERE a.is_demo = FALSE AND (CAST(:region_id AS int) IS NULL OR a.region_id = CAST(:region_id AS int))
-        ORDER BY a.period_start DESC
-        LIMIT :limit
-    """
-    try:
-        rows = db.fetch_all(sql, {"region_id": region_id, "limit": min(limit, settings.max_limit)})
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
+    from backend.app.api.national import query, region
+
+    selected = region(region_id)
+    rows = query(
+        """
+        SELECT a.id,a.cell_id,c.center_lat AS lat,c.center_lon AS lon,
+          a.period_start,a.period_end,a.observed,a.expected,a.score,a.level,a.method,a.notes,
+          (SELECT name FROM regions state WHERE state.level='state' AND state.is_demo=false
+              AND ST_Covers(state.geom,ST_SetSRID(ST_MakePoint(c.center_lon,c.center_lat),4326))
+              LIMIT 1) AS state
+        FROM anomaly_results a JOIN spatial_cells c ON c.id=a.cell_id
+        JOIN regions country ON country.id=a.region_id AND country.geocode='BR' AND country.level='country'
+        JOIN regions r ON r.id=:region AND r.geom IS NOT NULL AND r.is_demo=false
+        WHERE a.is_demo=false AND c.resolution='br_05deg'
+          AND ST_Covers(r.geom,ST_SetSRID(ST_MakePoint(c.center_lon,c.center_lat),4326))
+        ORDER BY a.period_start DESC,a.score DESC NULLS LAST LIMIT :limit
+    """,
+        {"region": selected["id"], "limit": limit},
+    )
     return [
         {
-            "id": r["id"],
-            "region": r["region_name"],
-            "period": [r["period_start"], r["period_end"]],
-            "observed": r["observed"],
-            "expected": r["expected"],
-            "score": r["score"],
-            "level": r["level"],
-            "method": r["method"],
-            "notes": r["notes"],
+            **row,
+            "region": row["state"] or selected["name"],
+            "period": [row["period_start"], row["period_end"]],
         }
-        for r in rows
+        for row in rows
     ]
 
 
@@ -50,7 +47,9 @@ def list_anomalies(
 def ingestion_batches(limit: int = Query(default=20, ge=1, le=100)) -> list[dict]:
     settings = get_settings()
     if not settings.api_database_url:
-        raise HTTPException(status_code=503, detail="Banco não conectado; ver docs/SETUP.md.")
+        raise HTTPException(
+            status_code=503, detail="Banco não conectado; ver docs/SETUP.md."
+        )
     sql = """
         SELECT b.id, b.source_code, b.source_url, b.period_start, b.period_end,
                b.records_total, b.records_accepted, b.records_rejected,
@@ -62,7 +61,9 @@ def ingestion_batches(limit: int = Query(default=20, ge=1, le=100)) -> list[dict
     try:
         rows = db.fetch_all(sql, {"limit": min(limit, settings.max_limit)})
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Consulta indisponível: {exc}"
+        ) from exc
     return [dict(r) for r in rows]
 
 
@@ -70,7 +71,9 @@ def ingestion_batches(limit: int = Query(default=20, ge=1, le=100)) -> list[dict
 def metadata_sources() -> list[dict]:
     settings = get_settings()
     if not settings.api_database_url:
-        raise HTTPException(status_code=503, detail="Banco não conectado; ver docs/SETUP.md.")
+        raise HTTPException(
+            status_code=503, detail="Banco não conectado; ver docs/SETUP.md."
+        )
     sql = """
         SELECT s.code, s.sensor, s.satellite, s.product, s.mode, s.active,
                COALESCE(c.total, 0)::int AS detections,
@@ -87,5 +90,7 @@ def metadata_sources() -> list[dict]:
     try:
         rows = db.fetch_all(sql)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Consulta indisponível: {exc}"
+        ) from exc
     return [dict(r) for r in rows]

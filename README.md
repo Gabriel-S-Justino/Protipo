@@ -1,83 +1,58 @@
-# Fire Intelligence Platform
+# Fire Intelligence · Brasil
 
-Plataforma de inteligência ambiental que unifica os históricos **MODIS** e **VIIRS** em uma única série
-(escala VIIRS) e gera um **calendário probabilístico de focos de calor** por região.
+Mapas Plano, Globo e Relevo 3D com atividade de calor harmonizada na escala VIIRS.
+Calendário por localização, semana ISO e mês, com frequência histórica, intervalo de
+95%, anos cobertos e validação temporal.
 
-- Região inicial: **Ceará, Brasil** (extensível a qualquer estado/país).
-- **Sem Docker**. Deploy pronto para a **Vercel** (SPA + API serverless + Postgres/PostGIS gerenciado).
-- Pipeline científico roda **fora da Vercel** (local e GitHub Actions agendado).
+## Arquitetura
+React/TypeScript/Vite → API FastAPI → PostgreSQL 15+ com PostGIS.
+O pipeline Python coleta, harmoniza e calcula os produtos fora da Vercel.
+Malhas oficiais do IBGE delimitam Brasil e as 27 UFs. Não há restrição ao Ceará.
 
+## Preparar os dados
+1. Instale as dependências de `backend/requirements.txt`, `pipeline/requirements.txt` e `frontend/package.json`.
+2. Configure `.env` a partir de `.env.example`: `DATABASE_URL`, `DATABASE_URL_DIRECT`, `MAP_KEY`.
+3. Aplique `alembic -c backend/alembic.ini upgrade head`.
+4. Execute `python -m pipeline boundaries` (importa os limites oficiais).
+5. Consulte `python -m pipeline status --sensor VIIRS_SNPP_SP` e as demais fontes.
+6. Faça backfill de janelas disponíveis de MODIS_SP, VIIRS_SNPP_SP e, para continuidade,
+   VIIRS_NOAA20_SP/NRT e VIIRS_NOAA21_SP/NRT.
+7. Execute `python -m pipeline harmonize`, `python -m pipeline calendar`,
+   `python -m pipeline anomalies`.
+
+Exemplo de backfill **restrito a 3 janelas de teste**:
+```sh
+python -m pipeline backfill --source VIIRS_SNPP_SP --start 2020-01-01 --end 2020-01-15 --limit 3
 ```
-NASA FIRMS / GIBS
-        │ download
-        ▼
-Pipeline Python (local / GitHub Actions)
-        │ grava (conexão direta)
-        ▼
-PostgreSQL + PostGIS (Neon via Vercel Marketplace, ou Supabase)
-        ▲ lê (conexão pooled)
-        │
-API FastAPI  →  Vercel Functions (Python)
-        ▲ /api/*
-SPA React (Vite) → Vercel estático
+Isso não produz um calendário confiável. São necessários pelo menos 3 anos com
+períodos completos por localização; use intervalos históricos reais disponíveis.
+
+`fetch` grava CSV e metadados JSON de cobertura. Para ingestão manual:
+`python -m pipeline ingest data/raw/ARQUIVO.csv --source FONTE`.
+Mantenha o JSON ao lado do CSV. Um CSV isolado não comprova cobertura de dias sem focos.
+Caches antigos do Ceará não contam como aquisição nacional.
+
+## Rodar e verificar
+```sh
+npm --prefix frontend install
+npm --prefix frontend run dev
+uvicorn backend.app.main:app --port 8000
+python -m pytest -q backend/tests pipeline/tests
+npm --prefix frontend run build
 ```
+`scripts/test_browser.cjs` verifica o preview na porta 4173 com fixtures isoladas
+do navegador, sem inserir dados fictícios no produto.
+O workflow diário executa `python -m pipeline update`; requer limites já importados
+e secrets `MAP_KEY` e `DATABASE_URL_DIRECT`.
 
-## Estrutura
+## Interpretação
+Uma única fonte VIIRS por dia; MODIS Aqua convertido somente com calibração por
+área aprovada em validação por ano. Não somamos os sensores.
+Unidade: subcélulas ocupadas de 0,01° por dia UTC e passagem diurna/noturna.
+Áreas de análise de 0,5° (~50 km); a conversão não recupera a resolução de 375 m.
+O calendário é recorrência histórica para planejamento, não previsão meteorológica
+nem garantia de incêndio. Veja [a metodologia](docs/HARMONIZATION.md) e
+[o calendário](docs/CALENDAR_MODEL.md).
 
-```
-frontend/            SPA React + TypeScript + Vite (tailwind)
-api/                 entrypoint das Vercel Functions (FastAPI)
-backend/             código da API (app/, migrations/, tests/, requirements.txt)
-pipeline/            pipeline científico — NÃO vai para a Vercel
-database/seeds/      seeds (DEMO)
-data/                raw/processed/boundaries/reports — fora do Git
-docs/                documentação (PT-BR)
-.github/workflows/   CI e pipeline agendado
-scripts/             utilitários multiplataforma
-```
-
-Referência rápida de operação (para o passo a passo completo, ver `docs/VERCEL.md`).
-
-## Deploy “está pronto”: fluxo sem mudanças de código
-
-1. `git push` → Vercel importa o repo e faz o deploy (frontend ✔ + API ✔ `/api/health`).
-2. Painel Vercel → **Storage → Create Database → Neon** → conecta ao projeto →
-   a integração injeta `DATABASE_URL`/`DATABASE_URL_UNPOOLED` automaticamente (o código já lê).
-3. Definir `ADMIN_ENABLED=true` e `ADMIN_TOKEN` (env Production) → redeploy →
-   `curl -X POST .../api/admin/migrate -H "X-Admin-Token: ..."` → PostGIS + 11 tabelas criadas.
-4. (Opcional) `npm run db:migrate` local faz o mesmo, com URLs no `.env`.
-5. Pipeline (`python -m pipeline`) para DEMO/ingestão real.
-
-## Início rápido
-
-Veja `docs/SETUP.md` para detalhes (Windows/macOS/Linux).
-
-```bash
-# Frontend
-npm install --prefix frontend
-npm run dev --prefix frontend
-
-# API local
-python -m venv .venv && . source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload                 # http://localhost:8000/api/docs
-
-# Pipeline
-pip install -r pipeline/requirements.txt
-python -m pipeline --help
-python -m pipeline seed-demo --rows 5000              # dados sintéticos DEMO (is_demo = true)
-```
-
-Cópia de `.env.example` → `.env` é obrigatória para o pipeline e para a API (variáveis listadas no arquivo).
-
-## Status da implementação
-
-Progresso guiado em fases (ver `docs/ARCHITECTURE.md`): base do projeto/migrations →
-ingestão FIRMS idempotente → harmonização MODIS→VIIRS → calendário/anomalias →
-interface completa (3 mapas, calendário, séries) → qualidade/produção.
-
-## Fontes e créditos
-
-Dados: **NASA FIRMS** (MODIS C6.1, VIIRS 375 m S-NPP/NOAA-20/NOAA-21) e **NASA GIBS** para contexto visual.
-Limites administrativos: **IBGE**. Detecção de satélite **não** é incêndio confirmado;
-o calendário apresenta **estatística histórica calibrada**, nunca previsão determinística.
+Mudanças locais precisam ser publicadas e a carga nacional precisa ser executada
+no ambiente com banco e chave FIRMS para aparecerem em produção.

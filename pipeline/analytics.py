@@ -1,380 +1,356 @@
-"""Análises científicas pré-calculadas (rodam FORA da Vercel; a API só lê).
-
-Etapa 4 — harmonize: calibra MODIS→VIIRS (razão de medianas por passo sobre a
-janela temporal com AMBOS os instrumentos) e grava a série unificada na escala
-VIIRS (viirs_raw nos meses com VIIRS, modis_harmonized nos meses sem VIIRS).
-Com pouco overlap real os resultados saem rotulados `insufficient`/
-`low_confidence` — NUNCA um número polido disfarçado de certeza.
-
-Etapa 5 — calendar: calendário probabilístico empírico P(≥1 foco) por mês
-civil (fração de anos com ≥1 foco na região, dados reais sem DEMO).
-Etapa 5 — anomalies: comparação do mês observado vs baseline do mesmo mês
-civil (média/desvio), com z-score e nível honesto (`info` quando a base é
-escassa).
+"""Brazil-wide, spatial harmonization. Derived tables are rebuilt atomically.
+Original detections remain unchanged. One reference VIIRS satellite per UTC day.
 """
 
-from __future__ import annotations
-
+from collections import defaultdict
+from itertools import groupby
 import json
-import statistics as st
-from datetime import date
-from typing import Any, Callable
-
 from sqlalchemy import text
-
 from pipeline.db import get_engine
+from pipeline.science import calibrate, calendar_rows, period_start, period_days
 from pipeline.version import PIPELINE_VERSION
 
-# Parâmetros científicos explícitos (honestidade + reprodutibilidade):
-MIN_OVERLAP_STEPS = 6       # meses de calibração para considerar modelo "medium"
-MIN_YEARS_CALENDAR = 3      # anos por bucket para confidence > "low"
-MIN_BASELINE_STEPS = 3      # baselines anteriores p/ anomalia não ser só ruído
+GRID = 0.5
+REFERENCE = [
+    "VIIRS_SNPP_SP",
+    "VIIRS_SNPP_NRT",
+    "VIIRS_NOAA20_SP",
+    "VIIRS_NOAA20_NRT",
+    "VIIRS_NOAA21_SP",
+    "VIIRS_NOAA21_NRT",
+]
+MODIS = ["MODIS_SP", "MODIS_NRT"]
 
 
-def _region_bbox(conn, region_id: int) -> dict[str, Any] | None:
-    row = conn.execute(
-        text("SELECT id, name, is_demo, bbox_w, bbox_e, bbox_s, bbox_n "
-             "FROM regions WHERE id = :id"),
-        {"id": region_id},
-    ).fetchone()
-    if row is None or row.bbox_w is None:
-        return None
-    return dict(row._mapping)
-
-
-def _counts_by_month(conn, bbox: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
-    """Contagens mensais REAIS (is_demo=FALSE) dentro do bbox da região.
-
-    Retorna listas prontas para harmonização/calendário; se a região não tiver
-    bbox fixado, usa todo o banco (escopo global)."""
-    if bbox:
-        where_geo = ("d.lon >= :w AND d.lon <= :e AND d.lat >= :s AND d.lat <= :n")
-        geo_params = {"w": bbox["bbox_w"], "e": bbox["bbox_e"],
-                      "s": bbox["bbox_s"], "n": bbox["bbox_n"]}
-        scope = f"região {bbox['name']}"
-    else:
-        where_geo = "TRUE"
-        geo_params = {}
-        scope = "escopo global (sem bbox)"
-    rows = conn.execute(
-        text(f"""
-            SELECT DATE_TRUNC('month', d.acquired_at)::date AS month,
-                   COALESCE(SUM((d.instrument = 'MODIS')::int), 0)  AS modis,
-                   COALESCE(SUM((d.instrument = 'VIIRS')::int), 0) AS viirs
-            FROM fire_detections d
-            WHERE d.is_demo = FALSE AND {where_geo}
-            GROUP BY 1 ORDER BY 1
-        """),
-        geo_params,
-    ).fetchall()
-    result = [{"month": r.month, "modis": int(r.modis), "viirs": int(r.viirs)} for r in rows]
-    return result, scope
-
-
-def _median_ratio(pairs: list[tuple[float, float]]) -> float:
-    """Razão de medianas VIIRS/MODIS nos pares (mesmo período, mesmo lugar)."""
-    ratios = [v / m for m, v in pairs if m > 0]
-    return st.median(ratios) if ratios else 1.0
-
-
-def _run_command(command: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-    """Grava pipeline_runs (idempotente: running → ok/error), devolve o resultado."""
-    with get_engine().begin() as conn:
-        run_id = conn.execute(
-            text("""
-                INSERT INTO pipeline_runs (command, status, pipeline_version, params)
-                VALUES (:cmd, 'running', :ver, CAST(:params AS jsonb)) RETURNING id
-            """),
-            {"cmd": command, "ver": PIPELINE_VERSION,
-             "params": json.dumps({"started": str(date.today()), "command": command})},
-        ).scalar_one()
-    try:
-        result = fn()
-    except Exception as exc:
-        with get_engine().begin() as conn:
-            conn.execute(
-                text("""
-                    UPDATE pipeline_runs
-                        SET status='error', finished_at=now(), result=CAST(:r AS jsonb),
-                            errors=CAST(:e AS jsonb)
-                        WHERE id = :id
-                """),
-                {"id": run_id, "r": json.dumps({"ok": False}),
-                 "e": json.dumps({"error": str(exc)[:2000]})},
-            )
-        raise
-    with get_engine().begin() as conn:
+def _country(conn):
+    row = (
         conn.execute(
-            text("""
-                UPDATE pipeline_runs
-                    SET status='ok', finished_at=now(), result=CAST(:r AS jsonb)
-                    WHERE id = :id
-            """),
-            {"id": run_id, "r": json.dumps(result, default=str)},
+            text(
+                "SELECT id,name FROM regions WHERE geocode='BR' AND level='country' AND geom IS NOT NULL"
+            )
         )
-    return result
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise RuntimeError(
+            "Importe os limites nacionais: python -m pipeline boundaries"
+        )
+    return row["id"]
 
 
-def harmonize(region_id: int = 1, start: str | None = None, end: str | None = None) -> dict:
-    """Etapa 4: calibra MODIS→VIIRS e grava harmonized_series (mensal)."""
+def _coverage(conn):
+    sources = defaultdict(set)
+    for row in conn.execute(
+        text(
+            "SELECT source_code,day FROM acquisition_coverage WHERE scope='BR' AND day<(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date"
+        )
+    ):
+        sources[row.day].add(row.source_code)
+    viirs, modis = {}, {}
+    for day, choices in sources.items():
+        if chosen := next((s for s in REFERENCE if s in choices), None):
+            viirs[day] = chosen
+        if chosen := next((s for s in MODIS if s in choices), None):
+            modis[day] = chosen
+    return viirs, modis
 
-    def _do() -> dict:
-        with get_engine().begin() as conn:
-            bbox = _region_bbox(conn, region_id)
-            if bbox is None:
-                return {"status": "error", "message": f"região {region_id} sem bbox fixado"}
-            counts, scope = _counts_by_month(conn, bbox)
 
-            if start:
-                counts = [c for c in counts if c["month"] >= date.fromisoformat(start)]
-            if end:
-                counts = [c for c in counts if c["month"] <= date.fromisoformat(end)]
+def _raw(conn, country):
+    # Deduplicate SP/NRT through canonical source selection later, and satellite
+    # revisits through 0.01-degree occupied subcells x daynight x UTC day.
+    return conn.execute(
+        text("""
+        SELECT FLOOR(d.lon/0.5)::int AS gx,FLOOR(d.lat/0.5)::int AS gy,
+          (d.acquired_at AT TIME ZONE 'UTC')::date AS day,s.code,d.instrument,
+          COUNT(DISTINCT (FLOOR(d.lon/0.01),FLOOR(d.lat/0.01),d.daynight))::float AS value
+        FROM fire_detections d JOIN data_sources s ON s.id=d.source_id
+        JOIN regions r ON r.id=:r
+        WHERE d.is_demo=false AND ST_Covers(r.geom,d.geom)
+          AND (d.instrument='VIIRS' OR (d.instrument='MODIS' AND d.satellite='Aqua'))
+        GROUP BY 1,2,3,4,5 ORDER BY 1,2,3
+    """).execution_options(stream_results=True),
+        {"r": country},
+    ).mappings()
 
-            overlap = [c for c in counts if c["modis"] > 0 and c["viirs"] > 0]
-            quality = "medium" if len(overlap) >= MIN_OVERLAP_STEPS else "low"
-            factor = _median_ratio([(c["modis"], c["viirs"]) for c in overlap]) if overlap else 1.0
-            has_overlap = len(overlap) > 0
-            flag = "ok" if (quality == "medium" and has_overlap) else "low_confidence"
 
-            # modelo de harmonização (proveniência)
-            model_id = conn.execute(
-                text("""
-                    INSERT INTO harmonization_models (
-                        name, method, region_level, calib_start, calib_end, daynight,
-                        params, metrics, quality, pipeline_version
-                    ) VALUES (
-                        :name, 'median_ratio', 'state', :cs, :ce, NULL,
-                        CAST(:params AS jsonb), CAST(:metrics AS jsonb), :quality, :ver
-                    ) RETURNING id
+def _upsert_cell(conn, gx, gy, country):
+    return conn.execute(
+        text("""
+        WITH area AS (
+          SELECT ST_PointOnSurface(ST_Intersection(r.geom,
+            ST_MakeEnvelope(:x,:y,:x+0.5,:y+0.5,4326))) AS point
+          FROM regions r WHERE id=:r
+        )
+        INSERT INTO spatial_cells(resolution,cell_key,center_lat,center_lon)
+        SELECT 'br_05deg',:key,ST_Y(point),ST_X(point) FROM area WHERE NOT ST_IsEmpty(point)
+        ON CONFLICT(resolution,cell_key) DO UPDATE SET center_lat=EXCLUDED.center_lat,center_lon=EXCLUDED.center_lon
+        RETURNING id
+    """),
+        {"x": gx * GRID, "y": gy * GRID, "key": f"{gx}:{gy}", "r": country},
+    ).scalar_one()
+
+
+def harmonize(region_id=None, start=None, end=None):
+    if start or end:
+        raise ValueError(
+            "A reconstrução nacional usa toda a cobertura; filtre datas na interface."
+        )
+    with get_engine().begin() as conn:
+        country = _country(conn)
+        viirs_days, modis_days = _coverage(conn)
+        if not viirs_days:
+            raise RuntimeError(
+                "Sem cobertura VIIRS verificada. Faça fetch + ingest nacional antes de harmonizar."
+            )
+        # Shared calendar months; same acquisition dates for both sensors, zeros included.
+        common = set(viirs_days) & set(modis_days)
+        shared = defaultdict(list)
+        for day in sorted(common):
+            shared[day.replace(day=1)].append(day)
+        shared = {
+            p: ds for p, ds in shared.items() if set(period_days(p, "month")) <= common
+        }
+        conn.execute(
+            text(
+                "DELETE FROM calendar_probabilities WHERE region_id IN (SELECT id FROM regions WHERE geom IS NOT NULL AND is_demo=false)"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM harmonized_series WHERE region_id IN (SELECT id FROM regions WHERE geom IS NOT NULL AND is_demo=false)"
+            )
+        )
+        # Derived models are retained for provenance (their id identifies the build).
+        calibrated = 0
+        cells_count = 0
+        rows_count = 0
+        insert = text("""
+            INSERT INTO harmonized_series(region_id,cell_id,period_type,period_start,value_source,
+                instrument_used,value_raw,value_viirs,ci_low,ci_high,model_id,quality_flag,is_demo,coverage_fraction,method)
+            VALUES(:r,:cell,:kind,:day,:source,:instrument,:raw,:value,:lo,:hi,:model,:quality,false,:coverage,'grid_01deg_occupied')
+        """)
+        # Server-side cursor and one cell in memory at a time for national histories.
+        raw_rows = _raw(conn, country)
+        for (gx, gy), group in groupby(
+            raw_rows, key=lambda row: (row["gx"], row["gy"])
+        ):
+            counts = {"MODIS": {}, "VIIRS": {}}
+            for row in group:
+                selection = viirs_days if row["instrument"] == "VIIRS" else modis_days
+                if selection.get(row["day"]) == row["code"]:
+                    counts[row["instrument"]][row["day"]] = row["value"]
+            if not counts["MODIS"] and not counts["VIIRS"]:
+                continue
+            cells_count += 1
+            inserts = []
+            cell = _upsert_cell(conn, gx, gy, country)
+            pairs = [
+                (
+                    p.year,
+                    sum(counts["MODIS"].get(d, 0) for d in ds),
+                    sum(counts["VIIRS"].get(d, 0) for d in ds),
+                )
+                for p, ds in shared.items()
+            ]
+            model = calibrate(pairs)
+            model_id = None
+            usable = bool(model and model["validated"])
+            if usable:
+                calibrated += 1
+                model_id = conn.execute(
+                    text("""
+                    INSERT INTO harmonization_models(name,method,region_level,params,metrics,quality,pipeline_version)
+                    VALUES(:name,'cell_ratio_bootstrap','grid',CAST(:params AS jsonb),CAST(:metrics AS jsonb),'medium',:v)
+                    RETURNING id
                 """),
-                {
-                    "name": f"MODIS→VIIRS {bbox['name']}",
-                    "cs": min((c["month"] for c in overlap), default=None),
-                    "ce": max((c["month"] for c in overlap), default=None),
-                    "params": json.dumps({
-                        "min_overlap_steps": MIN_OVERLAP_STEPS,
-                        "overlap_steps_available": len(overlap),
-                        "scale_target": "VIIRS (375 m)",
-                    }),
-                    "metrics": json.dumps({
-                        "median_ratio": factor,
-                        "pairwise_ratios": len(overlap),
-                        "note": "overlap parcial — fator provisório" if has_overlap
-                        else "SEM overlap MODIS×VIIRS nos dados atuais — fator neutro 1.0",
-                    }),
-                    "quality": quality,
-                    "ver": PIPELINE_VERSION,
-                },
-            ).scalar_one()
-
-            # série unificada (idempotente: substitui linhas da mesma região/period_type)
-            conn.execute(
-                text("DELETE FROM harmonized_series WHERE region_id=:r AND period_type='month'"),
-                {"r": region_id},
-            )
-            series_rows = 0
-            insufficient_flagged = 0
-            for c in counts:
-                if c["viirs"] > 0:
-                    source_kind, instrument_used, value_raw, value_viirs = (
-                        "viirs_raw", "VIIRS", float(c["viirs"]), float(c["viirs"]))
-                elif c["modis"] > 0:
-                    # Sem VIIRS: MODIS harmonizado (fator), flag honesta quando fraco.
-                    value_raw = float(c["modis"])
-                    value_viirs = value_raw * factor
-                    source_kind, instrument_used = "modis_harmonized", "MODIS"
-                else:
-                    continue  # mês sem detecções não entra na série
-                row_flag = flag
-                if source_kind == "modis_harmonized" and not has_overlap:
-                    row_flag = "insufficient"
-                    insufficient_flagged += 1
-                conn.execute(
-                    text("""
-                        INSERT INTO harmonized_series (
-                            region_id, period_type, period_start, value_source,
-                            instrument_used, value_raw, value_viirs, ci_low, ci_high,
-                            method, model_id, quality_flag, is_demo
-                        ) VALUES (
-                            :r, 'month', :p, :src, :instr, :vraw, :vviirs, :lo, :hi,
-                            :method, :model, :flag, FALSE
-                        )
-                    """),
-                    {"r": region_id, "p": c["month"], "src": source_kind,
-                     "instr": instrument_used, "vraw": value_raw,
-                     "vviirs": round(value_viirs, 3),
-                     "lo": round(value_viirs * 0.8, 3) if source_kind == "modis_harmonized"
-                     else value_viirs,
-                     "hi": round(value_viirs * 1.25, 3) if source_kind == "modis_harmonized"
-                     else value_viirs,
-                     "method": "median_ratio" if source_kind == "modis_harmonized" else None,
-                     "model": model_id if source_kind == "modis_harmonized" else None,
-                     "flag": row_flag},
+                    {
+                        "name": f"BR {gx}:{gy}",
+                        "params": json.dumps({"cell_id": cell, **model}),
+                        "metrics": json.dumps(model),
+                        "v": PIPELINE_VERSION,
+                    },
+                ).scalar_one()
+            covered = set(viirs_days) | (set(modis_days) if usable else set())
+            daily = []
+            # Sparse positives in the database; negatives recovered only from verified coverage.
+            for day in sorted(set(counts["VIIRS"]) | set(counts["MODIS"])):
+                if day not in covered:
+                    continue
+                direct = day in viirs_days
+                raw = (
+                    counts["VIIRS"].get(day, 0)
+                    if direct
+                    else counts["MODIS"].get(day, 0)
                 )
-                series_rows += 1
-
-            return {
-                "status": "ok",
-                "command": "harmonize",
-                "region": bbox["name"],
-                "scope": scope,
-                "model_id": model_id,
-                "median_ratio": round(factor, 4) if has_overlap else None,
-                "quality": quality,
-                "flag": flag,
-                "overlap_months": len(overlap),
-                "series_months": series_rows,
-                "insufficient_flagged": insufficient_flagged,
-                "honest_note": (
-                    "Modelo provisório: overlap MODIS×VIIRS insuficiente "
-                    f"({len(overlap)}/{MIN_OVERLAP_STEPS} meses). Fator {factor:.3f} "
-                    "deve ser recalibrado após o backfill histórico (MODIS_SP 2000→ + "
-                    "VIIRS_SNPP_SP). Meses sem VIIRS ficam marcados conforme flag."
-                ) if quality == "low" else "Modelo com overlap adequado (medium).",
-            }
-
-    return _run_command("harmonize", _do)
-
-
-def calendar(region_id: int = 1) -> dict:
-    """Etapa 5: calendário probabilístico empírico mensal P(≥1 foco)."""
-
-    def _do() -> dict:
-        with get_engine().begin() as conn:
-            bbox = _region_bbox(conn, region_id)
-            if bbox is None:
-                return {"status": "error", "message": f"região {region_id} sem bbox fixado"}
-            counts, scope = _counts_by_month(conn, bbox)
-
-            # histórico por mês civil escreve uma linha por mês com dados
-            conn.execute(
-                text("DELETE FROM calendar_probabilities WHERE region_id=:r AND period_type='month'"),
-                {"r": region_id},
-            )
-            buckets: dict[int, list[float]] = {}
-            for c in counts:
-                total = c["modis"] + c["viirs"]
-                y = c["month"].year
-                buckets.setdefault(c["month"].month, []).append(float(total))
-
-            rows_written = 0
-            for month_of_year in range(1, 13):
-                values = buckets.get(month_of_year, [])
-                if not values:
-                    continue  # nunca inventar: mês sem base não recebe linha falsa
-                years_used = len(values)
-                p_observed = sum(1 for v in values if v >= 1) / years_used
-                confidence = "low" if years_used < MIN_YEARS_CALENDAR else "medium"
-                expected = st.mean(values)
-                row_flag = "ok" if confidence != "low" else "low_confidence"
-                conn.execute(
-                    text("""
-                        INSERT INTO calendar_probabilities (
-                            region_id, period_type, period_of_year, probability,
-                            ci_low, ci_high, years_used, expected_count,
-                            harmonized_share, method, pipeline_version, confidence, is_demo
-                        ) VALUES (
-                            :r, 'month', :poy, :prob, :lo, :hi, :years, :exp,
-                            NULL, 'empirical_year_fraction', :ver, :conf, FALSE
-                        )
-                    """),
-                    {"r": region_id, "poy": month_of_year, "prob": p_observed,
-                     "lo": max(0.0, p_observed - 0.15), "hi": min(1.0, p_observed + 0.15),
-                     "years": years_used, "exp": round(expected, 3),
-                     "ver": PIPELINE_VERSION, "conf": confidence},
+                value = raw if direct else raw * model["factor"]
+                if value <= 0:
+                    continue
+                daily.append(
+                    {
+                        "r": country,
+                        "cell": cell,
+                        "day": day,
+                        "kind": "day",
+                        "raw": raw,
+                        "value": value,
+                        "lo": None if direct else raw * model["low"],
+                        "hi": None if direct else raw * model["high"],
+                        "source": "viirs_raw" if direct else "modis_harmonized",
+                        "instrument": "VIIRS" if direct else "MODIS",
+                        "model": None if direct else model_id,
+                        "quality": "ok" if direct else "low_confidence",
+                        "coverage": 1.0,
+                    }
                 )
-                rows_written += 1
-
-            months_with_data = len(buckets)
-            return {
-                "status": "ok",
-                "command": "calendar",
-                "region": bbox["name"],
-                "scope": scope,
-                "rows": rows_written,
-                "months_covered": months_with_data,
-                "honest_note": (
-                    f"{months_with_data}/12 meses com base real; years_used baixo → "
-                    "confidence 'low' em dezembro e demais (P cresce quando o backfill "
-                    "preencher os anos históricos)." if months_with_data < 12
-                    and rows_written else "Calendário empírico com 12 meses cobertos."
-                ),
-            }
-
-    return _run_command("calendar", _do)
-
-
-def anomalies(region_id: int = 1, threshold_warning: float = 2.0,
-              threshold_alert: float = 3.0) -> dict:
-    """Etapa 5: anomalias (mês observado x baseline do mesmo mês civil)."""
-
-    def _do() -> dict:
-        with get_engine().begin() as conn:
-            bbox = _region_bbox(conn, region_id)
-            if bbox is None:
-                return {"status": "error", "message": f"região {region_id} sem bbox fixado"}
-            counts, scope = _counts_by_month(conn, bbox)
-
-            conn.execute(
-                text("DELETE FROM anomaly_results WHERE region_id=:r AND is_demo=FALSE"),
-                {"r": region_id},
+            inserts.extend(daily)
+            for kind in ("week", "month"):
+                groups = defaultdict(list)
+                for row in daily:
+                    groups[period_start(row["day"], kind)].append(row)
+                for begin, rows in groups.items():
+                    days = period_days(begin, kind)
+                    fraction = sum(d in covered for d in days) / len(days)
+                    inserts.append(
+                        {
+                            "r": country,
+                            "cell": cell,
+                            "day": begin,
+                            "kind": kind,
+                            "raw": sum(r["raw"] for r in rows),
+                            "value": sum(r["value"] for r in rows),
+                            "lo": None,
+                            "hi": None,
+                            "source": (
+                                "modis_harmonized"
+                                if any(r["model"] for r in rows)
+                                else "viirs_raw"
+                            ),
+                            "instrument": "VIIRS",
+                            "model": model_id,
+                            "quality": "ok" if fraction == 1 else "insufficient",
+                            "coverage": fraction,
+                        }
+                    )
+            if inserts:
+                for offset in range(0, len(inserts), 5000):
+                    conn.execute(insert, inserts[offset : offset + 5000])
+                rows_count += len(inserts)
+        raw_rows.close()
+        if not rows_count:
+            raise RuntimeError(
+                "Nenhuma detecção nacional com cobertura verificada; preservado o produto anterior."
             )
-            rows_written = 0
-            for c in counts:
-                observed = c["modis"] + c["viirs"]
-                month_of_year = c["month"].month
-                baseline = [
-                    x["modis"] + x["viirs"]
-                    for x in counts
-                    if x["month"].month == month_of_year and x["month"] != c["month"]
-                ]
-                expected = st.mean(baseline) if baseline else None
-                level = "info"
-                score = None
-                notes = None
-                if baseline and expected and len(baseline) >= MIN_BASELINE_STEPS:
-                    sd = st.stdev(baseline)
-                    if sd > 0:
-                        score = (observed - expected) / sd
-                        if score >= threshold_alert:
-                            level = "alert"
-                        elif score >= threshold_warning:
-                            level = "warning"
-                else:
-                    notes = ("Baseline insuficiente (menos de "
-                             f"{MIN_BASELINE_STEPS} anos no mesmo mês) — nível mantido 'info'.")
-                # grava mesmo com level 'info' (trilha de auditoria) — nota sempre presente
-                conn.execute(
-                    text("""
-                        INSERT INTO anomaly_results (
-                            region_id, period_start, period_end, observed, expected,
-                            score, level, method, notes, pipeline_version, is_demo
-                        ) VALUES (
-                            :r, :ps, :pe, :obs, :exp, :score, :level, 'zscore_monthly',
-                            :notes, :ver, FALSE
-                        )
-                    """),
-                    {"r": region_id, "ps": c["month"], "pe": c["month"],
-                     "obs": observed, "exp": expected,
-                     "score": round(score, 3) if score is not None else None,
-                     "level": level,
-                     "notes": notes or ("Baseline suficiente: z-score válido."),
-                     "ver": PIPELINE_VERSION},
-                )
-                rows_written += 1
+        # Regional total rows are not necessary: the API sums the national grid after spatial selection.
+    return {
+        "status": "ok",
+        "cells": cells_count,
+        "calibrated_cells": calibrated,
+        "rows": rows_count,
+        "unit": "occupied 0.01 degree subcells × UTC day × daynight (VIIRS scale)",
+        "note": "Uncalibrated MODIS periods are excluded; 0.5 degree analysis grid.",
+    }
 
-            return {
-                "status": "ok",
-                "command": "anomalies",
-                "region": bbox["name"],
-                "scope": scope,
-                "rows": rows_written,
-                "honest_note": (
-                    "Anomalias com baseline escasso ficam 'info' com nota; níveis "
-                    "warning/alert exigem ao menos "
-                    f"{MIN_BASELINE_STEPS} anos do mesmo mês civil."
-                ),
-                "method": "zscore por mês civil (média/desvio dos outros anos)",
-            }
 
-    return _run_command("anomalies", _do)
+def calendar(region_id=None):
+    with get_engine().begin() as conn:
+        country = _country(conn)
+        viirs_days, modis_days = _coverage(conn)
+        direct = set(viirs_days)
+        model_cells = set()
+        # Models may be valid even when historical MODIS has no positive rows.
+        for row in conn.execute(
+            text("""
+            SELECT DISTINCT h.cell_id FROM harmonized_series h
+            JOIN harmonization_models m ON h.model_id=m.id WHERE h.region_id=:r
+              AND h.is_demo=false AND m.method='cell_ratio_bootstrap'
+        """),
+            {"r": country},
+        ):
+            model_cells.add(row.cell_id)
+        conn.execute(
+            text("DELETE FROM calendar_probabilities WHERE region_id=:r"),
+            {"r": country},
+        )
+        written = 0
+        insert = text("""
+            INSERT INTO calendar_probabilities(region_id,cell_id,period_type,period_of_year,
+                probability,ci_low,ci_high,years_used,eligible_years,expected_count,harmonized_share,
+                method,pipeline_version,confidence,is_demo,validation)
+            VALUES(:r,:cell,:kind,:bucket,:probability,:ci_low,:ci_high,:years_used,:years_used,
+                :expected_count,:share,'coverage_empirical',:version,:confidence,false,CAST(:validation AS jsonb))
+        """)
+        rows = conn.execute(
+            text("""
+            SELECT h.cell_id,h.period_start,h.value_viirs FROM harmonized_series h
+            JOIN spatial_cells c ON c.id=h.cell_id
+            WHERE h.region_id=:r AND h.period_type='day' AND h.is_demo=false AND c.resolution='br_05deg'
+            ORDER BY h.cell_id,h.period_start
+        """).execution_options(stream_results=True),
+            {"r": country},
+        ).mappings()
+        for cell, group in groupby(rows, key=lambda row: row["cell_id"]):
+            values = {row["period_start"]: row["value_viirs"] for row in group}
+            covered = direct | (set(modis_days) if cell in model_cells else set())
+            for kind in ("week", "month"):
+                for period, result in calendar_rows(values, covered, kind).items():
+                    conn.execute(
+                        insert,
+                        {
+                            "r": country,
+                            "cell": cell,
+                            "kind": kind,
+                            "bucket": period,
+                            **{k: v for k, v in result.items() if k != "validation"},
+                            "validation": json.dumps(result["validation"]),
+                            "share": None,
+                            "version": PIPELINE_VERSION,
+                        },
+                    )
+                    written += 1
+        rows.close()
+        if not written:
+            raise RuntimeError(
+                "Sem estimativas: são necessários pelo menos 3 anos com cobertura completa."
+            )
+    return {
+        "status": "ok",
+        "rows": written,
+        "note": "Complete weeks/months; >=3 years; Wilson interval; rolling-origin Brier.",
+    }
+
+
+def anomalies(region_id=None):
+    # Anomalies use the same unified grid, never sums of MODIS and VIIRS.
+    with get_engine().begin() as conn:
+        country = _country(conn)
+        conn.execute(
+            text("DELETE FROM anomaly_results WHERE region_id=:r AND is_demo=false"),
+            {"r": country},
+        )
+        result = conn.execute(
+            text("""
+            INSERT INTO anomaly_results(region_id,cell_id,period_start,period_end,observed,expected,score,
+                level,method,notes,pipeline_version,is_demo)
+            WITH history AS (
+              SELECT h.*, EXTRACT(MONTH FROM period_start) AS month
+              FROM harmonized_series h WHERE region_id=:r AND period_type='month'
+                AND is_demo=false AND coverage_fraction=1
+            ), scored AS (
+              SELECT h.*,b.expected,b.sd,b.n FROM history h
+              LEFT JOIN LATERAL (
+                SELECT AVG(x.value_viirs) AS expected,STDDEV(x.value_viirs) AS sd,COUNT(*) AS n
+                FROM history x WHERE x.cell_id=h.cell_id AND x.month=h.month
+                  AND x.period_start<h.period_start
+              ) b ON true
+            )
+            SELECT :r,cell_id,period_start,(period_start+interval '1 month'-interval '1 day')::date,
+              value_viirs,expected,CASE WHEN n>=3 AND sd>0 THEN (value_viirs-expected)/sd END,
+              CASE WHEN n>=3 AND sd>0 AND (value_viirs-expected)/sd>=3 THEN 'alert'
+                   WHEN n>=3 AND sd>0 AND (value_viirs-expected)/sd>=2 THEN 'warning' ELSE 'info' END,
+              'unified_prior_zscore','Base anterior; série esparsa, zeros não usados nesta análise exploratória.',:v,false
+            FROM scored
+        """),
+            {"r": country, "v": PIPELINE_VERSION},
+        )
+    return {"status": "ok", "rows": result.rowcount}

@@ -1,6 +1,6 @@
 # DATABASE (modelagem e operações)
 
-Fonte da verdade do DDL: `backend/migrations/versions/0001_initial.py` (Alembic).
+Fonte da verdade: migrations Alembic até `0004_brazil_science`. A versão 0004 acrescenta polígonos IBGE, cobertura nacional, métricas e proveniência por fonte.
 
 ## Tabelas
 
@@ -8,6 +8,7 @@ Fonte da verdade do DDL: `backend/migrations/versions/0001_initial.py` (Alembic)
 |------------------------|-------|
 | `data_sources`         | catálogo MODIS/VIIRS (SP/NRT) + DEMO_SYNTHETIC |
 | `ingestion_batches`    | relatório por lote (checksum, totais, status, versão) |
+| `acquisition_coverage` | dias de aquisição nacional verificados, inclusive sem focos |
 | `pipeline_runs`        | execução de cada comando do pipeline |
 | `fire_detections`      | **originais preservados** + `geometry(Point,4326)` + idem-key única |
 | `regions`              | estado/município IBGE/regiões custom (hierarquia via parent_id) |
@@ -21,8 +22,8 @@ Fonte da verdade do DDL: `backend/migrations/versions/0001_initial.py` (Alembic)
 ## Decisões-chave
 
 - **Geometry vs Geography**: `geometry(Point,4326)` + GiST para armazenar/consultar;
-  para distâncias/áreas usar `geography` ou SIRGAS 2000/UTM 24S (Ceará ~ zone 24S).
-- **Idem key** de `fire_detections`: (satellite, acquired_at, lat, lon, daynight, confidence_raw)
+  para distâncias/áreas usar `geography` ou projeção adequada à região nacional consultada.
+- **Idem key** de `fire_detections`: (source_id, satellite, acquired_at, lat, lon, daynight, confidence_raw)
   com índice único → deduplicação garantida pelo banco + `ON CONFLICT DO NOTHING`.
 - **is_demo**: separa DEMO de real; consultas públicas excluem `is_demo=TRUE`.
 - **Particionamento**: modelar com `date`, apenas ativar (partição por ano) após medir volume real.

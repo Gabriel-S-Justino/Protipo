@@ -53,7 +53,7 @@ def test_viirs_categorical_confidence() -> None:
     rec = res.records[0]
     assert rec.confidence_raw == "h"
     assert rec.confidence_norm == 100.0
-    assert rec.satellite == "S-NPP"
+    assert rec.satellite == "Suomi-NPP"
     assert rec.daynight == "N"
 
 

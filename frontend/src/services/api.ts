@@ -1,57 +1,93 @@
-/** Cliente HTTP para a API FastAPI (/api/*). Em dev, o proxy do Vite encaminha. */
-
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-
-export type Health = { status: "ok" | "degraded"; app: string; env: string; database: string | null; version: string };
-export type DashboardSummary = { total: number; last_30d: number; last_30d_avg_hist: number | null; unified_series_note: string };
-export type Coverage = { period_start: string | null; period_end: string | null; instruments: string[]; harmonized_share: number | null };
-export type CalendarCell = {
-  period_of_year: number;
-  probability: number;
-  ci_low: number | null;
-  ci_high: number | null;
-  years_used: number;
-  expected_count: number | null;
-  harmonized_share: number | null;
-  confidence: string;
-};
-export type UnifiedSeriesPoint = {
-  period_start: string;
-  value_raw: number;
-  value_viirs: number;
-  ci_low: number | null;
-  ci_high: number | null;
-  source: "viirs_raw" | "modis_harmonized";
-  quality: string;
-  method: string | null;
-};
-export type UnifiedSeries = { unit: string; provenance: string; points: UnifiedSeriesPoint[] };
-
+import type * as GeoJSON from "geojson";
+const BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
+    /\/$/,
+    "",
+  ) ?? "";
 export type Region = {
   id: number;
-  level: string;
   name: string;
-  geocode: string | null;
-  is_demo: boolean;
+  level: string;
+  geocode: string;
+  bbox_w: number;
+  bbox_s: number;
+  bbox_e: number;
+  bbox_n: number;
+};
+export type Health = {
+  status: "ok" | "degraded";
+  app: string;
+  env: string;
+  database: string | null;
+  version: string;
+};
+export type Coverage = {
+  period_start: string | null;
+  period_end: string | null;
+  instruments: string[];
+  harmonized_share: number | null;
+  covered_days: number;
+};
+export type DashboardSummary = {
   total: number;
   last_30d: number;
-  instruments: string[];
+  last_30d_avg_hist: number | null;
+  unified_series_note: string;
+  unit: string;
+  region: string;
+};
+export type CalendarCell = {
+  cell_id: number;
+  cell_key: string;
+  lat: number;
+  lon: number;
+  state: string | null;
+  period_of_year: number;
+  probability: number;
+  ci_low: number;
+  ci_high: number;
+  years_used: number;
+  expected_count: number;
+  confidence: string;
+  validation: {
+    brier_score: number | null;
+    test_years: number;
+    method: string;
+  };
+  calculated_at: string;
+};
+export type HeatProperties = Partial<CalendarCell> & {
+  weight?: number;
+  first_date?: string;
+  last_date?: string;
+};
+export type HeatData = GeoJSON.FeatureCollection<
+  GeoJSON.Point,
+  HeatProperties
+> & { metadata?: { unit?: string; meaning?: string; region?: string } };
+export type UnifiedSeries = {
+  unit: string;
+  region: string;
+  provenance: string;
+  points: {
+    period_start: string;
+    value_viirs: number;
+    coverage_fraction: number;
+    quality: string;
+  }[];
 };
 export type RegionSummary = {
-  region: { id: number; level: string; name: string; geocode: string | null; is_demo: boolean };
+  region: Region;
   totals: {
     total: number;
-    modis_count: number;
-    viirs_count: number;
     last_30d: number;
-    night_count: number;
     active_days: number;
     period_start: string | null;
     period_end: string | null;
   };
-  monthly_recent: { month: string; total: number; modis_count: number }[];
-  top_grid_cells: { lat_center: number; lon_center: number; total: number; night_count: number }[];
+  monthly_recent: { month: string; total: number }[];
   note: string;
+  unit: string;
 };
 export type Anomaly = {
   id: number;
@@ -61,7 +97,6 @@ export type Anomaly = {
   expected: number | null;
   score: number | null;
   level: string;
-  method: string;
   notes: string | null;
 };
 export type IngestionBatch = {
@@ -88,35 +123,60 @@ export type DataSourceInfo = {
   first_seen: string | null;
   last_seen: string | null;
 };
-
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
-
-async function getJson<T>(path: string): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, { headers: { Accept: "application/json" } });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new ApiError(resp.status, (body as { detail?: string }).detail ?? "Erro da API");
+async function getJson<T>(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+): Promise<T> {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params))
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  const response = await fetch(BASE + path + (search.size ? "?" + search : ""));
+  if (!response.ok) {
+    const body = await response
+      .json()
+      .catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, body.detail ?? "Erro da API");
   }
-  return (await resp.json()) as T;
+  return response.json() as Promise<T>;
 }
-
 export const api = {
   health: () => getJson<Health>("/api/health"),
-  dashboardSummary: () => getJson<DashboardSummary>("/api/dashboard/summary"),
+  dashboardSummary: (region_id?: number) =>
+    getJson<DashboardSummary>("/api/dashboard/summary", { region_id }),
   coverage: () => getJson<Coverage>("/api/metadata/coverage"),
-  calendar: (periodType: "day" | "week" | "month" = "week") =>
-    getJson<CalendarCell[]>(`/api/calendar/probability?period_type=${periodType}`),
-  unifiedSeries: (limit = 240) => getJson<UnifiedSeries>(`/api/series/unified?limit=${limit}`),
-  regions: (limit = 50) => getJson<Region[]>(`/api/regions?limit=${limit}`),
-  regionSummary: (id: number) => getJson<RegionSummary>(`/api/regions/${id}/summary`),
-  anomalies: (regionId?: number, limit = 100) =>
-    getJson<Anomaly[]>(
-      `/api/analytics/anomalies?limit=${limit}${regionId ? `&region_id=${regionId}` : ""}`,
-    ),
-  ingestionBatches: (limit = 30) => getJson<IngestionBatch[]>(`/api/ingestion/batches?limit=${limit}`),
+  regions: (limit = 100) => getJson<Region[]>("/api/regions", { limit }),
+  regionSummary: (id: number) =>
+    getJson<RegionSummary>(`/api/regions/${id}/summary`),
+  calendar: (period_type: "week" | "month", region_id?: number) =>
+    getJson<CalendarCell[]>("/api/calendar/probability", {
+      period_type,
+      region_id,
+    }),
+  locations: (
+    period_type: "week" | "month",
+    period: number,
+    region_id?: number,
+  ) =>
+    getJson<HeatData>("/api/calendar/locations", {
+      period_type,
+      period,
+      region_id,
+    }),
+  heat: (region_id?: number, from?: string, to?: string) =>
+    getJson<HeatData>("/api/map/heat", { region_id, from, to }),
+  unifiedSeries: (region_id?: number) =>
+    getJson<UnifiedSeries>("/api/series/unified", { region_id }),
+  anomalies: (region_id?: number, limit = 100) =>
+    getJson<Anomaly[]>("/api/analytics/anomalies", { region_id, limit }),
+  ingestionBatches: (limit = 30) =>
+    getJson<IngestionBatch[]>("/api/ingestion/batches", { limit }),
   dataSources: () => getJson<DataSourceInfo[]>("/api/metadata/sources"),
 };

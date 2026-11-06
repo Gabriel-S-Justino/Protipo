@@ -1,56 +1,79 @@
-/** Metodologia (§11.2.10): fontes, harmonização, modelo do calendário, limitações, citações. */
 export function MethodologyPage() {
   return (
-    <section className="prose prose-sm max-w-3xl space-y-6 text-sm leading-6">
-      <h1 className="text-xl font-semibold">Metodologia</h1>
-
-      <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-neutral-900">
-        <h2 className="mb-2 font-semibold">Fontes de dados</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            <strong>NASA FIRMS</strong>: MODIS C6.1 (Terra/Aqua, ~1 km) e VIIRS 375 m
-            (S-NPP desde 2012; NOAA-20 desde 2018; NOAA-21 desde 2024). Fontes SP (reprocessadas)
-            priorizadas para o histórico; NRT completa o período recente (regra de substituição documentada).
-          </li>
-          <li><strong>NASA GIBS</strong>: contexto visual (Blue Marble, Corrected Reflectance) — não alimenta a análise.</li>
-          <li><strong>IBGE</strong>: malhas municipais/estaduais dos limites administrativos.</li>
-        </ul>
-      </div>
-
-      <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-neutral-900">
-        <h2 className="mb-2 font-semibold">Harmonização MODIS → escala VIIRS</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>VIIRS é o sensor de referência; a série unificada toma a resolução/janela do VIIRS.</li>
-          <li>Calibração no período de sobreposição Aqua MODIS × VIIRS (2012→desativação do Aqua), mesmo horário de passagem.</li>
-          <li>Conversão modelada por região/estação/dia-noite (razão e regressão robusta como linha de base; modelos de contagem quando justificado).</li>
-          <li>Incerteza via bootstrap por ano/bloco, propagada até a série e ao calendário.</li>
-          <li>Relação instável ou amostra insuficiente → rotulada "harmonização de baixa confiança" ou "insuficiente". Nunca se força um número.</li>
-        </ul>
-      </div>
-
-      <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-neutral-900">
-        <h2 className="mb-2 font-semibold">Calendário de probabilidade</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Alvo: P(≥ 1 foco VIIRS-equivalente na região durante a semana s).</li>
-          <li>Métodos: climatologia empírica com suavização circular → modelo sazonal logístico/Poisson com harmônicos apenas se o backtesting justificar.</li>
-          <li>Validação: backtesting por ano (treina até N-1, avalia N): Brier score, log-loss, calibração, AUC.</li>
-          <li>Cada célula mostra probabilidade, IC 95%, nº de anos usados, parcela harmonizada vs. direta e nível de confiança.</li>
-        </ul>
-      </div>
-
-      <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-neutral-900">
-        <h2 className="mb-2 font-semibold">Limitações fundamentais</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Detecção de satélite <strong>não</strong> é incêndio confirmado; ausência de detecção não é ausência de fogo.</li>
-          <li>Terra (passagem matinal) não tem análogo VIIRS; por padrão fica fora da série principal.</li>
-          <li>S-NPP interrompe atualização operacional da FIRMS em 2/11/2026 (histórico persiste).</li>
-          <li>Probabilidade do calendário é <strong>estatística histórica calibrada</strong>, não previsão determinística.</li>
-        </ul>
-      </div>
-
+    <section className="max-w-3xl space-y-6 text-sm leading-6">
+      <h1 className="text-2xl font-semibold">Como interpretar os dados</h1>
+      <article className="rounded-xl border p-5 dark:border-neutral-800">
+        <h2 className="font-semibold">Uma referência: VIIRS</h2>
+        <p>
+          Os registros originais NASA FIRMS são preservados. A análise usa
+          subcélulas ocupadas de 0,01° por dia UTC e por passagem
+          diurna/noturna, reunidas em áreas de 0,5°. Não é uma contagem de
+          incêndios nem de pixels VIIRS de 375 m.
+        </p>
+        <p>
+          Para cada dia, selecionamos uma única fonte VIIRS com cobertura
+          confirmada: S-NPP, depois NOAA-20 e NOAA-21; SP tem prioridade sobre
+          NRT do mesmo satélite. Isso evita somar passagens de vários satélites.
+          Transições entre plataformas ainda podem introduzir diferenças.
+        </p>
+        <p>
+          Aqua MODIS é calibrado em meses completos compartilhados com VIIRS na
+          mesma área. O fator é a mediana das razões mensais; a incerteza vem de
+          reamostragem de anos. A validação retira um ano inteiro de cada vez e
+          compara o erro com a conversão neutra. Exigimos 6 meses e 3 anos de
+          sobreposição. MODIS sem calibração aprovada é excluído da série
+          equivalente. Terra fica de fora por seu horário de passagem diferente.
+        </p>
+        <p>
+          Um dia coberto com zero VIIRS permanece zero; não é substituído por
+          MODIS. Conversão estatística não recupera a resolução espacial do
+          sensor VIIRS.
+        </p>
+      </article>
+      <article className="rounded-xl border p-5 dark:border-neutral-800">
+        <h2 className="font-semibold">Calendário semanal e mensal</h2>
+        <p>
+          A probabilidade é a fração dos anos cobertos em que a área apresentou
+          ao menos uma unidade de atividade equivalente. Dias sem detecção
+          entram como zero apenas quando a aquisição e ingestão da área nacional
+          foram verificadas. Períodos incompletos e o período em andamento são
+          excluídos. São necessários 3 anos completos para publicar uma
+          estimativa.
+        </p>
+        <p>
+          Semanas seguem o calendário ISO (segunda a domingo, inclusive a semana
+          53 quando existir). O intervalo de Wilson de 95% representa a
+          incerteza amostral da frequência; não inclui toda a incerteza entre
+          sensores. O Brier é calculado apenas com anos anteriores a cada ano de
+          teste. Sem anos de teste suficientes, a validação aparece como
+          indisponível.
+        </p>
+        <p>
+          O ano de planejamento posiciona as semanas e meses em datas futuras. A
+          probabilidade continua sendo histórica: não incorpora previsão
+          meteorológica, ignições humanas ou mudanças recentes no uso do solo.
+          Não há garantia de ocorrência.
+        </p>
+      </article>
+      <article className="rounded-xl border p-5 dark:border-neutral-800">
+        <h2 className="font-semibold">Mapas e localização</h2>
+        <p>
+          Plano usa projeção Mercator, Globo usa projeção esférica, e Relevo 3D
+          combina elevação real com câmera inclinada. A camada de calor mostra
+          concentração suavizada de atividade; ela não representa temperatura.
+        </p>
+        <p>
+          O território nacional é recortado pelas malhas oficiais simplificadas
+          do IBGE. Os filtros estaduais usam o ponto representativo da área de
+          0,5°; células na divisa podem conter atividade de mais de um estado.
+          Coordenadas indicam a área analisada, não a localização exata de
+          futuros focos. Detecção de satélite não confirma incêndio; nuvens e
+          condições de observação podem ocultar atividade.
+        </p>
+      </article>
       <p className="text-xs text-neutral-500">
-        Créditos: MODIS (NASA/Terra-Aqua), VIIRS (NASA/NOAA Suomi-NPP, NOAA-20, NOAA-21),
-        FIRMS/GIBS (NASA EOSDIS), malhas IBGE.
+        Fontes: NASA FIRMS (MODIS/VIIRS), IBGE (limites), OpenStreetMap/NASA
+        GIBS (base), Mapzen/AWS (elevação).
       </p>
     </section>
   );

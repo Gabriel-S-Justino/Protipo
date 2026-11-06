@@ -1,119 +1,139 @@
-"""Endpoints que leem resultados pré-calculados no banco.
+"""Unified summary, coverage and spatial weekly/monthly calendar."""
 
-Princípio central do projeto: a API SERVE E CONSULTA; o pipeline CALCULA.
-Nenhum processamento científico dentro da requisição; todas as consultas
-parametrizadas (anti-SQL injection), com limites máximos.
-"""
-
-from fastapi import APIRouter, HTTPException, Query
-
-from backend.app.core import db
-from backend.app.core.config import get_settings
-from backend.app.schemas import CalendarCell, CoverageOut, DashboardSummary
+from datetime import date
+from fastapi import APIRouter, Query, HTTPException
+from backend.app.api.national import query, region, GRID_FROM, feature_collection, UNIT
 
 router = APIRouter(tags=["dashboard"])
 
 
-def _require_db() -> None:
-    settings = get_settings()
-    if not settings.api_database_url:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Banco não conectado: crie o banco pela integração da Vercel (Database "
-                "Marketplace) ou defina DATABASE_URL no .env (ver docs/SETUP.md). "
-                "Nada de dados fictícios em produção."
-            ),
-        )
-
-
-@router.get("/dashboard/summary", response_model=DashboardSummary)
-def dashboard_summary() -> DashboardSummary:
-    _require_db()
-    try:
-        row = db.fetch_one(
-            """
-            SELECT
-              COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE acquired_at >= now() - interval '30 days')::int AS last_30d
-            FROM fire_detections
-            WHERE is_demo = FALSE
-            """
-        )
-        avg = db.fetch_one(
-            """
-            SELECT COALESCE(AVG(c.monthly), 0) AS avg30
-            FROM (
-              SELECT date_trunc('month', acquired_at) AS m,
-                     (COUNT(*)::numeric / 30) AS monthly
-              FROM fire_detections
-              WHERE is_demo = FALSE
-                AND acquired_at < now() - interval '30 days'
-                AND acquired_at >= now() - interval '365 days'
-              GROUP BY 1
-            ) c
-            """
-        )
-    except Exception as exc:  # noqa: BLE001 — falha de banco → erro padronizado
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
-
-    avg30 = float(avg["avg30"]) if avg and avg.get("avg30") is not None else None
-    return DashboardSummary(
-        total=row["total"] if row else 0,
-        last_30d=row["last_30d"] if row else 0,
-        last_30d_avg_hist=avg30,
+@router.get("/dashboard/summary")
+def dashboard_summary(region_id: int | None = None):
+    selected = region(region_id)
+    rows = query(
+        """
+        SELECT COALESCE(SUM(value_viirs),0) AS total,
+          COALESCE(SUM(value_viirs) FILTER(WHERE period_start>=CURRENT_DATE-30),0) AS last_30d,
+          AVG(value_viirs) FILTER(WHERE period_start<CURRENT_DATE-30 AND period_start>=CURRENT_DATE-365) AS last_30d_avg_hist
+    """ + GRID_FROM + " AND h.period_type='day'",
+        {"region": selected["id"]},
     )
+    return {
+        **rows[0],
+        "unit": UNIT,
+        "region": selected["name"],
+        "unified_series_note": "Uma única série: VIIRS de referência e MODIS convertido onde a calibração foi validada. Lacunas de cobertura não equivalem a zero.",
+    }
 
 
-@router.get("/metadata/coverage", response_model=CoverageOut)
-def coverage() -> CoverageOut:
-    _require_db()
-    try:
-        rows = db.fetch_all(
-            """
-            SELECT MIN(acquired_at)::date AS period_start, MAX(acquired_at)::date AS period_end,
-                   array_agg(DISTINCT instrument::text) AS instruments
-            FROM fire_detections
-            WHERE is_demo = FALSE
-            """
-        )
-        harm = db.fetch_one(
-            """
-            SELECT COALESCE(
-              AVG(CASE WHEN value_source = 'modis_harmonized' THEN 1.0 ELSE 0.0 END), NULL
-            ) AS harmonized_share
-            FROM harmonized_series WHERE is_demo = FALSE
-            """
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
-
-    first = rows[0] if rows else {}
-    return CoverageOut(
-        period_start=first.get("period_start"),
-        period_end=first.get("period_end"),
-        instruments=first.get("instruments") or [],
-        harmonized_share=harm["harmonized_share"] if harm else None,
-    )
+@router.get("/metadata/coverage")
+def coverage():
+    rows = query("""
+        SELECT MIN(day) AS period_start,MAX(day) AS period_end,
+          COUNT(DISTINCT day) AS covered_days FROM acquisition_coverage WHERE scope='BR'
+    """)
+    share = query("""
+        SELECT AVG(CASE WHEN value_source='modis_harmonized' THEN 1.0 ELSE 0.0 END) AS share
+        FROM harmonized_series h JOIN spatial_cells c ON c.id=h.cell_id
+        WHERE h.is_demo=false AND h.period_type='day' AND c.resolution='br_05deg'
+    """)
+    return {
+        **rows[0],
+        "instruments": ["série VIIRS equivalente"],
+        "harmonized_share": share[0]["share"],
+    }
 
 
-@router.get("/calendar/probability", response_model=list[CalendarCell])
+CALENDAR_FROM = """
+    FROM calendar_probabilities p JOIN spatial_cells c ON c.id=p.cell_id
+    JOIN regions country ON country.id=p.region_id AND country.level='country' AND country.geocode='BR'
+    JOIN regions r ON r.id=:region AND r.geom IS NOT NULL AND r.is_demo=false
+    WHERE p.is_demo=false AND c.resolution='br_05deg' AND p.period_type=:kind
+      AND ST_Covers(r.geom,ST_SetSRID(ST_MakePoint(c.center_lon,c.center_lat),4326))
+"""
+COLUMNS = """p.cell_id,c.cell_key,c.center_lat AS lat,c.center_lon AS lon,p.period_of_year,
+    p.probability,p.ci_low,p.ci_high,p.years_used,p.expected_count,p.confidence,
+    p.validation,p.calculated_at,
+    (SELECT name FROM regions state WHERE state.level='state' AND state.is_demo=false
+        AND ST_Covers(state.geom,ST_SetSRID(ST_MakePoint(c.center_lon,c.center_lat),4326)) LIMIT 1) AS state"""
+
+
+@router.get("/calendar/probability")
 def calendar_probability(
-    region_id: int | None = Query(None),
-    period_type: str = Query("week", pattern="^(day|week|month)$"),
-) -> list[CalendarCell]:
-    _require_db()
-    sql = """
-        SELECT period_of_year, probability, ci_low, ci_high, years_used,
-               expected_count, harmonized_share, confidence
-        FROM calendar_probabilities
-        WHERE is_demo = FALSE AND period_type = :period_type
-          AND (CAST(:region_id AS int) IS NULL OR region_id = :region_id)
-        ORDER BY period_of_year
-        LIMIT 400
+    region_id: int | None = None,
+    period_type: str = Query("week", pattern="^(week|month)$"),
+):
+    selected = region(region_id)
+    params = {"region": selected["id"], "kind": period_type}
+    # Most active 20 cells, all their periods. Stable identity avoids mixing locations.
+    return query(
+        "WITH eligible AS (SELECT " + COLUMNS + CALENDAR_FROM + """),
+        selected_cells AS (SELECT cell_id FROM eligible GROUP BY cell_id
+                           ORDER BY AVG(expected_count) DESC,cell_id LIMIT 20)
+        SELECT * FROM eligible WHERE cell_id IN(SELECT cell_id FROM selected_cells)
+        ORDER BY cell_id,period_of_year
+    """,
+        params,
+    )
+
+
+@router.get("/calendar/locations")
+def calendar_locations(
+    region_id: int | None = None,
+    period_type: str = Query("week", pattern="^(week|month)$"),
+    period: int = Query(1, ge=1, le=53),
+):
+    if period_type == "month" and period > 12:
+        raise HTTPException(422, "Mês deve estar entre 1 e 12.")
+    selected = region(region_id)
+    rows = query(
+        "SELECT "
+        + COLUMNS
+        + CALENDAR_FROM
+        + " AND p.period_of_year=:period ORDER BY p.cell_id",
+        {"region": selected["id"], "kind": period_type, "period": period},
+    )
+    result = feature_collection(rows)
+    result["metadata"] = {
+        "region": selected["name"],
+        "period_type": period_type,
+        "period": period,
+        "meaning": "Probabilidade histórica de pelo menos uma subcélula ativa na área de 0,5°. Não é previsão meteorológica.",
+        "resolution_degrees": 0.5,
+    }
+    return result
+
+
+@router.get("/map/heat")
+def map_heat(
+    region_id: int | None = None,
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+):
+    if from_date and to_date and from_date >= to_date:
+        raise HTTPException(
+            422, "A data final deve ser posterior à inicial (fim exclusivo)."
+        )
+    selected = region(region_id)
+    rows = query(
+        """
+        SELECT h.cell_id,c.center_lon AS lon,c.center_lat AS lat,
+          SUM(h.value_viirs) AS weight,MIN(h.period_start) AS first_date,MAX(h.period_start) AS last_date
     """
-    try:
-        rows = db.fetch_all(sql, {"period_type": period_type, "region_id": region_id})
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Consulta indisponível: {exc}") from exc
-    return [CalendarCell(**r) for r in rows]
+        + GRID_FROM
+        + """
+        AND h.period_type='day'
+        AND (CAST(:start AS date) IS NULL OR h.period_start>=:start)
+        AND (CAST(:end AS date) IS NULL OR h.period_start<:end)
+        GROUP BY h.cell_id,c.center_lon,c.center_lat ORDER BY h.cell_id
+    """,
+        {"region": selected["id"], "start": from_date, "end": to_date},
+    )
+    return {
+        **feature_collection(rows),
+        "metadata": {
+            "unit": UNIT,
+            "region": selected["name"],
+            "resolution_degrees": 0.5,
+        },
+    }

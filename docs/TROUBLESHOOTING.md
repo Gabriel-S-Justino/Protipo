@@ -32,3 +32,16 @@ preferências de teste (`httpx2==2.16.0`).
 
 - Se `vercel dev` não subir a API, rodar frontend e API separadamente:
   `npm run dev --prefix frontend` + `uvicorn backend.app.main:app --port 8000`.
+
+
+## Mapas no build de produção
+MapLibre 6 exige worker separado: Vite importa maplibre-gl-worker.mjs?worker&url
+e configura setWorkerUrl. Falhas do worker impedem GeoJSON e elevação.
+Globo usa NASA GIBS Blue Marble com matriz GoogleMapsCompatible_Level8;
+Plano/Relevo usam OpenStreetMap e DEM terrarium. Nenhuma chave CARTO/Cesium é necessária.
+
+## Calendário nacional vazio
+Aplique a migration 0004, importe boundaries e faça a carga nacional com sidecars.
+Não use cargas antigas do Ceará como cobertura do Brasil. São necessários pelo menos
+3 anos com períodos completos por área. A calibração MODIS precisa de 6 meses e
+3 anos compartilhados com VIIRS; sem validação aprovada, MODIS é excluído.

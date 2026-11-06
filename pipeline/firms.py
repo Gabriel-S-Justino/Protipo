@@ -1,101 +1,115 @@
-"""Cliente da NASA FIRMS (Area API, Data Availability, status da chave).
+"""FIRMS downloads with dated cache and a coverage sidecar (including valid empty CSVs)."""
 
-Regras:
-- MAP_KEY só em variável de ambiente; log de cada chamada SEM a chave.
-- Cache por checksum (não baixar duas vezes); retry com backoff; respeito aos limites.
-- Antes de implementar em produção: validar formato real e especificado em
-  docs/DATA_PIPELINE.md (instrução do PromptMaster §5).
-"""
-
-from __future__ import annotations
-
+import csv
 import hashlib
+import io
+import json
 import logging
 import time
+from datetime import date as Date, datetime, timedelta, timezone
 from pathlib import Path
-
 import requests
-
 from pipeline.config import get_settings
+from pipeline.geography import BRAZIL_BBOX
 
-logger = logging.getLogger("pipeline.firms")
-
+logger = logging.getLogger(__name__)
 FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov/api"
-# Valido ATUAL (chave real, 2026-11-05): "Invalid day range. Expects [1..5]." com HTTP 400.
 MAX_DAY_RANGE = 5
-RETRIES = 3
-BACKOFF_S = 2.0
-
-TIMEOUT_S = 60
-
-_cache_dir = Path("data/raw")
 
 
-def _checksum(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def _dates(day_range, date=None):
+    today = datetime.now(timezone.utc).date()
+    start = Date.fromisoformat(date) if date else today - timedelta(days=day_range - 1)
+    return start, start + timedelta(days=day_range - 1)
 
 
-def _url_for_area(source: str, bbox: tuple[float, float, float, float],
-                  day_range: int, date: str | None = None) -> str:
-    west, south, east, north = bbox
+def _cache_path(source, bbox, day_range, date=None):
+    start, end = _dates(day_range, date)
+    digest = hashlib.sha256(f"{source}|{bbox}|{start}|{end}".encode()).hexdigest()[:16]
+    return Path(get_settings().data_dir) / "raw" / f"{source}_{digest}.csv"
+
+
+def _key():
     key = get_settings().map_key
     if not key:
-        raise RuntimeError(
-            "MAP_KEY ausente: registre em https://firms.modaps.eosdis.nasa.gov/api/map_key/ "
-            "e defina-a em .env. A chave é da sua conta Earthdata (gratuita)."
-        )
-    window = min(day_range, MAX_DAY_RANGE)
-    url_date = f"/{date}" if date else ""
-    return (
-        f"{FIRMS_BASE}/area/csv/{key}/{source}/{west},{south},{east},{north}/{window}{url_date}"
+        raise RuntimeError("MAP_KEY ausente; configure a chave NASA FIRMS no ambiente.")
+    return key
+
+
+def data_availability(source):
+    response = requests.get(
+        f"{FIRMS_BASE}/data_availability/csv/{_key()}/{source}", timeout=60
     )
-
-
-def _cache_path(source: str, bbox: tuple[float, float, float, float],
-                day_range: int, date: str | None = None) -> Path:
-    payload_key = f"{source}|{','.join(str(x) for x in bbox)}|{day_range}|{date}" if date else \
-        f"{source}|{','.join(str(x) for x in bbox)}|{day_range}|recent"
-    return _cache_dir / f"{source}_{hashlib.sha256(payload_key.encode()).hexdigest()[:12]}.csv"
-
-
-def fetch_area(source: str, bbox: tuple[float, float, float, float],
-               day_range: int = 1, date: str | None = None) -> str:
-    """Baixa CSV da Area API com cache local por checksum (evita re-download e conta menos
-    transações contra o limite da chave). Rejeita janelas > 5 dias (validado: HTTP 400)."""
-    if not (1 <= day_range <= MAX_DAY_RANGE):
-        raise ValueError(f"day_range deve estar em [1..{MAX_DAY_RANGE}] (FIRMS valida 400 fora disso).")
-    _cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_name = _cache_path(source, bbox, day_range, date)
-    if cache_name.is_file():
-        logger.info("cache hit: %s", cache_name.name)
-        return cache_name.read_text(encoding="utf-8")
-
-    url = _url_for_area(source, bbox, day_range, date)
-    logged_url = url.replace(get_settings().map_key or "", "***")
-    for attempt in range(1, RETRIES + 1):
-        try:
-            logger.info("GET %s (tentativa %d/%d)", logged_url, attempt, RETRIES)
-            resp = requests.get(url, timeout=TIMEOUT_S)
-            resp.raise_for_status()
-            text = resp.text
-            if not text.strip():
-                # FIRMS devolve string vazia quando não há detecções; não é erro.
-                break
-            cache_name.write_text(text, encoding="utf-8")
-            return text
-        except requests.RequestException as exc:
-            logger.warning("Falha FIRMS (%s): %s", logged_url, exc)
-            time.sleep(BACKOFF_S * attempt)
-    raise RuntimeError(f"Download FIRMS falhou após {RETRIES} tentativas: {logged_url}")
-
-
-def data_availability(source: str) -> str:
-    """Data availability por fonte (endpoint válido, validado com chave real 2026-11-05)."""
-    key = get_settings().map_key
-    if not key:
+    if not response.ok:
         raise RuntimeError(
-            "MAP_KEY ausente; obtenha em https://firms.modaps.eosdis.nasa.gov/api/map_key/"
+            f"Disponibilidade FIRMS indisponível (HTTP {response.status_code})."
         )
-    resp = requests.get(f"{FIRMS_BASE}/data_availability/csv/{key}/{source}", timeout=TIMEOUT_S)
-    resp.raise_for_status()
-    return resp.text
+    return response.text
+
+
+def fetch_area(source, bbox=BRAZIL_BBOX, day_range=1, date=None):
+    if not 1 <= day_range <= MAX_DAY_RANGE:
+        raise ValueError("day_range deve estar entre 1 e 5")
+    start, end = _dates(day_range, date)
+    path = _cache_path(source, bbox, day_range, date)
+    sidecar = path.with_suffix(".json")
+    # Recent windows are mutable; never cache them indefinitely.
+    immutable = end < datetime.now(timezone.utc).date() - timedelta(days=7)
+    if immutable and path.is_file() and sidecar.is_file():
+        return path.read_text(encoding="utf-8")
+    availability = list(csv.DictReader(io.StringIO(data_availability(source))))
+    valid = any(
+        row.get("min_date")
+        and row.get("max_date")
+        and Date.fromisoformat(row["min_date"][:10]) <= start
+        and Date.fromisoformat(row["max_date"][:10]) >= end
+        for row in availability
+    )
+    if not valid:
+        raise ValueError(
+            f"{source}: janela {start} a {end} fora da disponibilidade confirmada."
+        )
+    url = f"{FIRMS_BASE}/area/csv/{_key()}/{source}/{','.join(map(str,bbox))}/{day_range}/{start}"
+    payload = None
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=90)
+            if response.ok:
+                payload = response.text
+                break
+            logger.warning(
+                "FIRMS %s HTTP %s (tentativa %s)",
+                source,
+                response.status_code,
+                attempt + 1,
+            )
+        except requests.RequestException:
+            logger.warning("FIRMS %s: erro de rede (tentativa %s)", source, attempt + 1)
+        time.sleep(2**attempt)
+    if payload is None:
+        raise RuntimeError(f"Falha ao baixar {source}: {start} a {end}.")
+    if payload.strip():
+        header = next(csv.reader(io.StringIO(payload)))
+        if not {"latitude", "longitude", "acq_date"}.issubset(
+            {h.strip().lower() for h in header}
+        ):
+            raise ValueError(
+                f"Resposta FIRMS inválida para {source}; cobertura não registrada."
+            )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload, encoding="utf-8")
+    sidecar.write_text(
+        json.dumps(
+            {
+                "source": source,
+                "start": str(start),
+                "end": str(end),
+                "bbox": list(bbox),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "availability_verified": True,
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return payload

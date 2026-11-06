@@ -58,7 +58,10 @@ if "-pooler." in db_url:
         "URL direta (sem '-pooler': consolidação de DDL/ferramentas de schema). Copie no "
         "console do Neon a.Connection String com 'Pooled' DESLIGADO."
     )
-config.set_main_option("sqlalchemy.url", db_url)
+db_url = db_url.replace("postgres://", "postgresql://", 1).replace(
+    "postgresql://", "postgresql+psycopg://", 1
+)
+config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

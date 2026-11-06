@@ -1,54 +1,100 @@
-/** Página de mapa — três modos com dados reais (filtros demo/temporais honestos). */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Region } from "@/services/api";
+import { api } from "@/services/api";
+import { useScope } from "@/app/Scope";
 import { FireMapView, type MapMode } from "./FireMapView";
-
-const MODES: { id: MapMode; label: string; note: string }[] = [
-  { id: "globe", label: "Globo 3D", note: "NASA GIBS Blue Marble + projeção globe" },
-  { id: "flat", label: "Mapa plano", note: "base escura CARTO, zoom até rua" },
-  { id: "terrain", label: "Relevo 3D", note: "DEM terrarium (dados abertos)" },
+const MODES: { id: MapMode; label: string }[] = [
+  { id: "flat", label: "Plano" },
+  { id: "globe", label: "Globo" },
+  { id: "terrain", label: "Relevo 3D" },
 ];
-
+function iso(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
 export function MapPage({ initialMode }: { initialMode: MapMode }) {
-  const [mode, setMode] = useState<MapMode>(initialMode);
-  const regionsQuery = useQuery({ queryKey: ["regions"], queryFn: () => api.regions(20) });
-  const regions = (regionsQuery.data ?? []).filter((r: Region) => r.name === "Ceará");
-  const ceara = regions[0];
-  // bbox do Ceará real (regions API: colunas não expostas no resumo) — fixo leaderboard-safe
-  const bbox: [number, number, number, number] = [-42.6404, -7.5178, -37.2866, -2.3017];
-
+  const { regionId, name, bbox } = useScope();
+  const [mode, setMode] = useState(initialMode);
+  useEffect(() => setMode(initialMode), [initialMode]);
+  const [from, setFrom] = useState(() =>
+    iso(new Date(Date.now() - 30 * 86400000)),
+  );
+  const [to, setTo] = useState(() => iso(new Date()));
+  const valid = from < to;
+  const q = useQuery({
+    queryKey: ["heat", regionId, from, to],
+    queryFn: () => api.heat(regionId, from, to),
+    enabled: valid,
+  });
   return (
     <section className="space-y-4">
-      <h1 className="text-xl font-semibold">
-        Focos de calor {ceara ? `— ${ceara.name}` : "— carregando regiões…"}
-      </h1>
-
-      <div className="flex flex-wrap gap-2">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setMode(m.id)}
-            className={`rounded-md border px-3 py-1.5 text-sm transition ${
-              mode === m.id
-                ? "border-orange-400 bg-orange-50 text-orange-700 dark:border-orange-500 dark:bg-orange-950 dark:text-orange-300"
-                : "border-neutral-200 bg-white hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
-            }`}
-            title={m.note}
-          >
-            {m.label}
-          </button>
-        ))}
+      <div>
+        <h1 className="text-2xl font-semibold">Calor no território · {name}</h1>
+        <p className="mt-1 text-sm text-neutral-500">
+          Histórico unificado na escala VIIRS. Explore a concentração espacial e
+          escolha o período.
+        </p>
       </div>
-
-      <FireMapView mode={mode} regionBbox={bbox} />
-
-      <p className="text-xs text-neutral-500">
-        {MODES.find((m) => m.id === mode)?.note}. Dados exclusivamente NASA FIRMS
-        (MODIS 1 km + VIIRS 375 m, escala VIIRS na série; no mapa, células com a
-        proporção por instrumento). Regime "inserir dados DEMO" é
-        rotulado e nunca misturado; filtros temporais dao vir numa próxima iteração.
-      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex rounded-lg border border-neutral-300 p-1 dark:border-neutral-700">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              aria-pressed={mode === m.id}
+              onClick={() => setMode(m.id)}
+              className={`rounded px-3 py-2 text-sm ${mode === m.id ? "bg-orange-600 text-white" : ""}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <label className="text-xs">
+          De
+          <input
+            aria-label="Data inicial"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="ml-2 rounded border bg-transparent p-2"
+          />
+        </label>
+        <label className="text-xs">
+          Até (exclusivo)
+          <input
+            aria-label="Data final"
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="ml-2 rounded border bg-transparent p-2"
+          />
+        </label>
+      </div>
+      {!valid && (
+        <p role="alert">Escolha uma data final posterior à inicial.</p>
+      )}
+      {q.isFetching && (
+        <p role="status" className="text-sm text-neutral-500">
+          Atualizando atividade…
+        </p>
+      )}
+      {q.error && (
+        <p
+          role="alert"
+          className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+        >
+          {q.error.message}
+        </p>
+      )}
+      {q.data && !q.data.features.length && (
+        <p className="rounded border p-3 text-sm">
+          Sem atividade processada neste intervalo. Consulte Dados e qualidade
+          para verificar a cobertura; isso não confirma ausência de fogo.
+        </p>
+      )}
+      <FireMapView
+        mode={mode}
+        regionBbox={bbox}
+        data={valid ? q.data : undefined}
+      />
     </section>
   );
 }

@@ -34,3 +34,8 @@ data/boundaries/*
 *.sqlite3
 *.dump
 *.backup
+
+# Local verification dependencies
+.test-deps/
+.pnpm-store/
+.test-artifacts/

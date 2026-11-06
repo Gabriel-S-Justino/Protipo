@@ -1,41 +1,34 @@
-# CALENDAR_MODEL (fase 5 — implementado)
+# Calendário espacial semanal e mensal
 
-> Implementado em `pipeline/analytics.py` (`python -m pipeline calendar --region 1`):
-> P(≥1 foco) por mês civil = fração de anos com ≥1 foco na região (dados reais,
-> is_demo=FALSE), `years_used` e `confidence` honestos; API lê
-> `/api/calendar/probability?period_type=month`.
-> Anomalias: `python -m pipeline anomalies --region 1` (z-score por mês civil;
-> baseline < 3 anos ⇒ level 'info' com nota) → `/api/analytics/anomalies`.
+`python -m pipeline calendar` lê a série unificada da grade nacional.
+Publica até 53 semanas ISO e 12 meses por área, com localização consultável no mapa.
 
+## Denominador e cobertura
+Cobertura vem de `acquisition_coverage`, registrada somente após consulta FIRMS
+nacional válida e ingestão sem linhas rejeitadas. O download verifica a disponibilidade
+da fonte, o período e o checksum; respostas vazias válidas também registram cobertura.
+Cobertura indica aquisição/ingestão bem-sucedida, não ausência de nuvens.
 
-Objetivo: calendário probabilístico por região/ano — estatística histórica calibrada,
-NUNCA previsão determinística de incêndios. Gravado em `calendar_probabilities` pelo
-pipeline (`python -m pipeline calendar`).
+Um período só entra se todos os seus dias foram adquiridos e o período já terminou.
+Sem cobertura, não se infere zero. Com cobertura, dias sem atividade são negativos.
+Usa os dias VIIRS e, nas áreas calibradas, dias MODIS convertidos quando VIIRS está ausente.
+Exige pelo menos três anos completos por bucket. Semana 53 usa o ano ISO correto.
 
-## Alvo (§ 8.1)
+## Estimativa e validação
+P = fração de anos cobertos com atividade equivalente >=1.
+O intervalo de Wilson de 95% expressa a incerteza amostral da frequência.
+Não engloba completamente a incerteza da harmonização/sensores.
+A contagem esperada é a média da atividade equivalente nos mesmos períodos cobertos.
 
-- Unidade única por célula do calendário: `P(≥ 1 foco VIIRS-equivalente na região durante a semana s)`.
-- Opcional: contagem esperada (`expected_count`) e FRP esperado.
-- Unidade espacial-temporal: escolhe-se conforme o volume real (semana × município como padrão;
-  célula da grade para regiões grandes). Definição final após medir o volume (§ 3.3).
+Brier rolling-origin: cada ano é avaliado com os anteriores, após três anos de treino.
+Sem anos de teste, Brier é nulo. Confiança continua baixa se a base for curta.
+Não é um modelo meteorológico, nem uma probabilidade validada de incêndio futuro.
 
-## Métodos (do simples ao complexo; avança apenas se a validação justificar)
+## Interface
+Seleção nacional/estadual, semana/mês e ano de planejamento. O ano apenas organiza
+as datas, sem extrapolar tendência. Mostra mapa, ranking, intervalo, anos usados e
+tabela das 20 áreas de maior atividade média. Todas as áreas estimadas aparecem no
+mapa do período. Sem estimativa aparece como indisponível, nunca como risco zero.
 
-1. **Climatologia empírica** por semana do ano com suavização circular (fim(início) do ano conectados).
-2. **Modelo sazonal**: regressão logística/Poisson com harmônicos de Fourier,
-   efeito de região e tendência; intervalos via Beta-binomial bayesiano ou bootstrap.
-3. Opcional: covariáveis (precipitação POWER/IMERG, ENSO, NDVI) apenas se
-   melhorarem a métrica fora da amostra.
-
-## Backtesting (§ 8.3)
-
-- Por ano: treina até N-1, avalia N — Brier score, log-loss, calibração, AUC.
-- Comparar sempre com a linha de base ingênua (climatologia simples); reportar se
-  o modelo complexo realmente ganha.
-- Amostra insuficiente → célula marcada **"dados insuficientes"** (interface mostra isso).
-
-## Apresentação (§ 8.4)
-
-- Mapa de calor semana × região; visão mensal/diária; comparação ano corrente
-  (observado vs esperado); como exportar CSV/PNG; fica implementado na fase 6/7 da UI.
-- Interface usa SEMPRE "probabilidade histórica".
+A grade é de 0,5° (~50 km); seleções estaduais usam o ponto representativo da célula.
+Áreas na divisa podem incluir atividade de mais de um estado.

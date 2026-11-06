@@ -7,7 +7,7 @@ const ITEMS: { label: string; to: string; icon: string }[] = [
   { label: "Globo 3D", to: "/globe", icon: "◍" },
   { label: "Mapa plano", to: "/map", icon: "▦" },
   { label: "Mapa 3D realista", to: "/map3d", icon: "▲" },
-  { label: "Calendário de probabilidade", to: "/calendar", icon: "▦" },
+  { label: "Quando e onde", to: "/calendar", icon: "▦" },
   { label: "Séries históricas", to: "/series", icon: "∿" },
   { label: "Anomalias", to: "/anomalies", icon: "⚠" },
   { label: "Regiões", to: "/regions", icon: "☰" },
@@ -16,12 +16,12 @@ const ITEMS: { label: string; to: string; icon: string }[] = [
 ];
 
 export function Sidebar() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(() => window.innerWidth >= 1024);
 
   return (
     <nav
       aria-label="Visualizações"
-      className={`flex flex-col gap-1 border-r border-neutral-200 bg-white p-3 transition-all dark:border-neutral-800 dark:bg-neutral-900 ${
+      className={`flex shrink-0 flex-col gap-1 border-r border-neutral-200 bg-white p-3 transition-all dark:border-neutral-800 dark:bg-neutral-900 ${
         open ? "w-64" : "w-16"
       }`}
     >
@@ -37,7 +37,9 @@ export function Sidebar() {
         {open ? (
           <span className="block text-sm leading-4">
             Fire Intelligence
-            <span className="block text-xs font-normal text-neutral-500">Ceará · série VIIRS</span>
+            <span className="block text-xs font-normal text-neutral-500">
+              Brasil · escala VIIRS
+            </span>
           </span>
         ) : (
           <span aria-hidden>🔥</span>

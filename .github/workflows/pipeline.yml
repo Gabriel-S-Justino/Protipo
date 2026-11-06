@@ -1,42 +1,30 @@
-name: Pipeline (atualização incremental diária)
-
-# Executa fetch → ingest → agregados → calendar/anomalias do período recente.
-# Requer secrets do repositório: MAP_KEY, DATABASE_URL_DIRECT.
-# Idempotente: reprocessar o mesmo dia é seguro (checksum + ON CONFLICT DO NOTHING).
-
+name: Pipeline nacional
 on:
   schedule:
-    - cron: "0 12 * * *"   # 12:00 UTC ≈ 09:00 (Acre/AM) / 09h de janela FIRMS
+    - cron: "0 12 * * *"
   workflow_dispatch:
-
 concurrency:
-  group: pipeline-daily
+  group: pipeline-national
   cancel-in-progress: false
-
 jobs:
   daily-update:
     runs-on: ubuntu-latest
-    if: ${{ github.repository != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
           cache: pip
-      - name: Install deps
+      - name: Install
         run: pip install -r pipeline/requirements.txt
-      - name: Update (incremental)
+      - name: Validar configuração
         env:
           MAP_KEY: ${{ secrets.MAP_KEY }}
           DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
         run: |
-          set -euo pipefail
-          python -m pipeline fetch --source VIIRS_NOAA20_NRT --days 2 || true
-          python -m pipeline fetch --source VIIRS_NOAA21_NRT --days 2 || true
-          python -m pipeline ingest data/raw/*.csv --source VIIRS_NOAA20_NRT || true
-          python -m pipeline report
-      - name: Fail loudly on missing secrets
-        run: |
-          if [ -z "${{ secrets.MAP_KEY }}" ]; then
-            echo "::warning::MAP_KEY/DATABASE_URL_DIRECT não configurados — pipeline sem efeito."
-          fi
+          test -n "$MAP_KEY" && test -n "$DATABASE_URL_DIRECT"
+      - name: Coletar, harmonizar e atualizar calendário nacional
+        env:
+          MAP_KEY: ${{ secrets.MAP_KEY }}
+          DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+        run: python -m pipeline update
