@@ -1,0 +1,30 @@
+name: Diagnosticar preparação nacional
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-national.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+      MAP_KEY: ${{ secrets.MAP_KEY }}
+    steps:
+      - name: Verificar disponibilidade de configuração
+        run: |
+          if [ -n "$DATABASE_URL_DIRECT" ]; then
+            echo "DATABASE_URL_DIRECT: configurado"
+          else
+            echo "::error::DATABASE_URL_DIRECT ausente nos secrets do repositório."
+          fi
+          if [ -n "$MAP_KEY" ]; then
+            echo "MAP_KEY: configurado"
+          else
+            echo "::warning::MAP_KEY ausente nos secrets do repositório."
+          fi
+          test -n "$DATABASE_URL_DIRECT"
