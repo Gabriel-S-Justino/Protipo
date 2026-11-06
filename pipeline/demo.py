@@ -115,8 +115,7 @@ def seed_demo(rows: int = 5000, years: int = 5) -> dict:
                 text(
                     """
                     INSERT INTO fire_detections (
-                      source_id, satellite, instrument, acquired_at, lat, lon,
-                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), daynight,
+                      source_id, satellite, instrument, acquired_at, lat, lon, geom, daynight,
                       confidence_raw, confidence_norm, frp, is_demo
                     ) VALUES (
                       :source_id, :satellite, :instrument, :acquired_at, :lat, :lon,

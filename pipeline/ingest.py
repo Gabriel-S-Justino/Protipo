@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from pipeline.db import get_engine
+from pipeline.db import INSERT_DETECTION_SQL, get_engine
 from pipeline.normalization import SOURCES, SAT_BY_SOURCE, normalize_csv_text
 
 from pipeline.version import PIPELINE_VERSION

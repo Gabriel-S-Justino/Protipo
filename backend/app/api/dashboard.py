@@ -71,7 +71,7 @@ def coverage() -> CoverageOut:
     try:
         rows = db.fetch_all(
             """
-            SELECT MIN(acquired_at) AS period_start, MAX(acquired_at) AS period_end,
+            SELECT MIN(acquired_at)::date AS period_start, MAX(acquired_at)::date AS period_end,
                    array_agg(DISTINCT instrument::text) AS instruments
             FROM fire_detections
             WHERE is_demo = FALSE
@@ -108,7 +108,7 @@ def calendar_probability(
                expected_count, harmonized_share, confidence
         FROM calendar_probabilities
         WHERE is_demo = FALSE AND period_type = :period_type
-          AND (:region_id IS NULL OR region_id = :region_id)
+          AND (CAST(:region_id AS int) IS NULL OR region_id = :region_id)
         ORDER BY period_of_year
         LIMIT 400
     """

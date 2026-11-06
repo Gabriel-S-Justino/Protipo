@@ -8,11 +8,26 @@ Aceita, em ordem:
 Nunca rodar migrations automaticamente a cada cold start (local/CI/admin apenas)."""
 
 import os
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.app.models import Base
+
+
+def _load_env_file() -> None:
+    """Carrega .env simples (KEY=VALUE) quando a variável não está no ambiente."""
+    if Path(".env").is_file():
+        for line in Path(".env").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
 
 config = context.config
 
@@ -23,9 +38,25 @@ db_url = (
     or os.environ.get("DATABASE_URL")
 )
 if not db_url:
+    _load_env_file()
+    db_url = (
+        os.environ.get("DATABASE_URL_DIRECT")
+        or os.environ.get("DATABASE_URL_UNPOOLED")
+        or os.environ.get("POSTGRES_URL_NON_POOLING")
+        or os.environ.get("DATABASE_URL")
+    )
+if not db_url:
     raise RuntimeError(
-        "URL direta do banco ausente para migrations. Use DATABASE_URL_DIRECT (manual) "
+        "URL direta do banco ausente para migrations. Use DATABASE_URL_DIRECT (manual no .env) "
         "ou a var DATABASE_URL_UNPOOLED injetada pela integração Vercel×Neon."
+    )
+
+# Migrations exigem conexão DIRETA: URLs com "-pooler" são rejeitadas aqui por segurança.
+if "-pooler." in db_url:
+    raise RuntimeError(
+        "A URL configurada para MIGRATIONS é pooled (~'-pooler.'). Alembic/pipeline exigem a "
+        "URL direta (sem '-pooler': consolidação de DDL/ferramentas de schema). Copie no "
+        "console do Neon a.Connection String com 'Pooled' DESLIGADO."
     )
 config.set_main_option("sqlalchemy.url", db_url)
 

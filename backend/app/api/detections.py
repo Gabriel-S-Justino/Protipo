@@ -22,7 +22,7 @@ def list_detections(
         SELECT d.detection_id, d.satellite, d.instrument, d.acquired_at, d.lat, d.lon,
                d.daynight, d.confidence_raw, d.confidence_norm, d.frp, d.is_demo
         FROM fire_detections d
-        WHERE (:instrument IS NULL OR d.instrument = :instrument)
+        WHERE (CAST(:instrument AS text) IS NULL OR d.instrument = :instrument)
           AND (:include_demo OR d.is_demo = FALSE)
         ORDER BY d.acquired_at DESC, d.detection_id DESC
         LIMIT :limit OFFSET :offset

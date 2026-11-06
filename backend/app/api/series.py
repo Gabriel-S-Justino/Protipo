@@ -28,7 +28,7 @@ def unified_series(
                h.quality_flag, h.method
         FROM harmonized_series h
         WHERE h.period_type = :period_type
-          AND (:region_id IS NULL OR h.region_id = :region_id)
+          AND (CAST(:region_id AS int) IS NULL OR h.region_id = :region_id)
           AND h.is_demo = FALSE
         ORDER BY h.period_start
         LIMIT :limit
@@ -67,7 +67,7 @@ def seasonality(region_id: int | None = Query(None)) -> dict:
                AVG(value_viirs)::float AS mean, STDDEV(value_viirs)::float AS sd
         FROM harmonized_series
         WHERE is_demo = FALSE AND period_type = 'week'
-          AND (:region_id IS NULL OR region_id = :region_id)
+          AND (CAST(:region_id AS int) IS NULL OR region_id = :region_id)
         GROUP BY 1 ORDER BY 1
     """
     try:
