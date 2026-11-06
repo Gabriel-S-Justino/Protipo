@@ -1,4 +1,12 @@
-# CALENDAR_MODEL (fase 5)
+# CALENDAR_MODEL (fase 5 — implementado)
+
+> Implementado em `pipeline/analytics.py` (`python -m pipeline calendar --region 1`):
+> P(≥1 foco) por mês civil = fração de anos com ≥1 foco na região (dados reais,
+> is_demo=FALSE), `years_used` e `confidence` honestos; API lê
+> `/api/calendar/probability?period_type=month`.
+> Anomalias: `python -m pipeline anomalies --region 1` (z-score por mês civil;
+> baseline < 3 anos ⇒ level 'info' com nota) → `/api/analytics/anomalies`.
+
 
 Objetivo: calendário probabilístico por região/ano — estatística histórica calibrada,
 NUNCA previsão determinística de incêndios. Gravado em `calendar_probabilities` pelo

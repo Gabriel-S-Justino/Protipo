@@ -1,4 +1,10 @@
-# HARMONIZATION (MODIS → escala VIIRS) — design da fase 4
+# HARMONIZATION (MODIS → escala VIIRS) — design + implementação
+
+> Implementado em `pipeline/analytics.py` (`python -m pipeline harmonize --region 1`):
+> razão de medianas no overlap mensal MODIS×VIIRS, série em `harmonized_series`
+> (viirs_raw direto; modis_harmonized com fator e incerteza ±20/25%), modelo em
+> `harmonization_models` com `quality` honesta conforme nº de meses de overlap.
+
 
 Resultado: **uma série única na escala VIIRS**, com incerteza e proveniência.
 Originais intactos em `fire_detections`; a unificação acontece em tabelas derivadas

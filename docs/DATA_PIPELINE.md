@@ -67,6 +67,24 @@ VIIRS_NOAA21_NRT          # SP do NOAA-21 ainda a confirmar via data_availabilit
 
 ## Regras de uso (§ 5.4 do master prompt)
 
+## Comandos científicos implementados (fases 4–6)
+
+```bash
+python -m pipeline backfill --source MODIS_SP --start 2000-11-01 --end 2026-08-31 --sleep 0.5
+python -m pipeline backfill --source VIIRS_SNPP_SP --start 2012-01-01 --end 2026-07-31
+python -m pipeline harmonize --region 1            # fator mediana em overlap ≥6 meses ⇒ medium
+python -m pipeline calendar  --region 1            # P(≥1 foco) por mês civil (fracão de anos)
+python -m pipeline anomalies --region 1            # z-score vs baseline do mesmo mês
+```
+
+- `backfill`: janelas de **5 dias** (limite real da Area API), cache por checksum, ingest
+  idempotente — seguro de reexecutar; pausa `--sleep` de cortesia; erros por janela não abortam.
+- Honestidade: com overlap escasso o `harmonize` grava flag `low_confidence`/`insufficient`
+  e `calendar/anomalies` mantêm `confidence='low'`/`level='info'` com nota (nunca um
+  número polido sem base).
+- Regiões: `regions.bbox_*` (Ceará = extremos aprox. IBGE) como delimitação provisória
+  até ingestar a malha oficial; `is_demo` separa regiões-DEMO.
+
 - MAP_KEY/Banco em variáveis de ambiente/secrets apenas.
 - Cache por checksum em `data/raw/` — nunca re-baixar (economia de transações).
 - Retry com backoff (3 tentativas); log de cada chamada **sem** a chave.
